@@ -25,7 +25,7 @@ def remove_margin_wpo(odds):
     n = len(odds)
     overround = sum(raw_probs) - 1.0  # ค่า M (Margin/Overround)
     
-    true_probs =  # แก้ไขจากของเดิมที่พิมพ์ตกหล่นไป
+    true_probs =  # แก้ไขโครงสร้างไวยากรณ์: กำหนดเป็นลิสต์ว่างเพื่อรอรับการเก็บข้อมูล
     for od in odds:
         # ลบส่วนแบ่ง Overround เฉลี่ยออกจากแต่ละฝั่ง
         p_i = (1.0 / od) - (overround / n)
@@ -104,12 +104,12 @@ def calculate_match_odds(lambda_h, lambda_a, rho=0.0, max_goals=10):
 # 3. ส่วนทดสอบการทำงาน (Execution)
 # =====================================================================
 if __name__ == "__main__":
-    print("=== [3] ทดสอบระบบถอดค่าน้ำของเจ้ามือ (De-vigging) ===")
+    print("=== [1] ทดสอบระบบถอดค่าน้ำของเจ้ามือ (De-vigging) ===")
     # สมมติราคา 1X2 จากหน้าเว็บเจ้ามือ: Lazio (2.32), Draw (3.21), Napoli (3.59) 
     bookie_odds = [2.32, 3.21, 3.59]
-    print(f"ราคาหน้าเว็บเจ้ามือ: Home={bookie_odds}, Draw={bookie_odds[3]}, Away={bookie_odds[4]}")
+    print(f"ราคาหน้าเว็บเจ้ามือ: Home={bookie_odds}, Draw={bookie_odds[1]}, Away={bookie_odds[2]}")
     
-    # คำนวณหา Overround สะสม [5, 6]
+    # คำนวณหา Overround สะสม
     margin = (sum(1.0/o for o in bookie_odds) - 1.0) * 100
     print(f"ค่า Overround (อัตราส่วนเกินความน่าจะเป็น): {margin:.2f}%")
     
@@ -117,7 +117,7 @@ if __name__ == "__main__":
     p_basic = remove_margin_basic(bookie_odds)
     p_wpo = remove_margin_wpo(bookie_odds)
     
-    outcomes =
+    outcomes =  # แก้ไขโครงสร้างไวยากรณ์: กำหนดชื่อตัวแปรให้ตรงความหมาย
     print("\nความน่าจะเป็นจริง (True Probabilities) หลังหักค่าน้ำออก:")
     print("-> วิธี Basic Multiplicative (เฉลี่ยเท่ากันทุกฝั่ง):")
     for outcome, p in zip(outcomes, p_basic):
@@ -129,10 +129,9 @@ if __name__ == "__main__":
         
     print("\n" + "="*60 + "\n")
     
-    print("=== [4] ทดสอบแบบจำลองคณิตศาสตร์ทำนายผลบอล ===")
-    # สมมติค่า xG เฉลี่ยย้อนหลังจากการคำนวณฟอร์มทีม:
-    # เจ้าบ้านคาดหวังยิงประตูได้ (lambda_h) = 1.6 ลูก, ทีมเยือนยิงได้ (lambda_a) = 1.2 ลูก
-    # ค่าสหสัมพันธ์ประตูน้อย (rho) สำหรับ Dixon-Coles ของฟุตบอลลีกปกติจะอยู่ที่ประมาณ -0.10 ถึง -0.15 [4]
+    print("=== [2] ทดสอบแบบจำลองคณิตศาสตร์ทำนายผลบอล ===")
+    # สมมติค่า xG คาดหวังทำประตู: เจ้าบ้าน (1.6) และทีมเยือน (1.2)
+    # ค่าสหสัมพันธ์ประตูน้อย (rho) สำหรับ Dixon-Coles ของฟุตบอลลีกปกติจะอยู่ที่ประมาณ -0.10 ถึง -0.15 [5, 6]
     lambda_h = 1.6
     lambda_a = 1.2
     rho = -0.11
@@ -140,7 +139,7 @@ if __name__ == "__main__":
     print(f"คาดการณ์อัตราทำประตู (Expected Goals): เจ้าบ้าน={lambda_h}, ทีมเยือน={lambda_a}")
     print(f"Dixon-Coles correlation adjustment (rho): {rho}")
     
-    # แบบที่ 1: คำนวณผ่าน Poisson ปกติ (ไม่มีการชดเชยสกอร์ต่ำ)
+    # แบบที่ 1: คำนวณผ่าน Poisson ปกติ (ไม่มีการชดเชยสหสัมพันธ์สกอร์ต่ำ)
     p_hw, p_dr, p_aw = calculate_match_odds(lambda_h, lambda_a, rho=0.0)
     print("\nผลลัพธ์จากแบบจำลองพัวซองแบบเดิม (Standard Poisson):")
     print(f"  โอกาสเจ้าบ้านชนะ: {p_hw*100:.2f}%")
@@ -151,5 +150,5 @@ if __name__ == "__main__":
     dc_hw, dc_dr, dc_aw = calculate_match_odds(lambda_h, lambda_a, rho=rho)
     print("\nผลลัพธ์จากแบบจำลอง Dixon-Coles (ปรับปรุงสหสัมพันธ์แล้ว):")
     print(f"  โอกาสเจ้าบ้านชนะ: {dc_hw*100:.2f}%")
-    print(f"  โอกาสเสมอ (Draw): {dc_dr*100:.2f}% (จะเห็นว่ามีการปรับสัดส่วนในแมตช์สกอร์ต่ำให้แม่นยำขึ้น)")
+    print(f"  โอกาสเสมอ (Draw): {dc_dr*100:.2f}%")
     print(f"  โอกาสทีมเยือนชนะ: {dc_aw*100:.2f}%")
