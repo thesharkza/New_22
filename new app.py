@@ -7,7 +7,7 @@ import math
 def remove_margin_basic(odds):
     """
     วิธี Basic (Multiplicative) De-vigging
-    สูตรคณิตศาสตร์: $p_i = \frac{r_i}{\sum r}$ โดยที่ $r_i = \frac{1}{O_i}$
+    สูตรคณิตศาสตร์: p_i = r_i / sum(r) โดยที่ r_i = 1 / O_i
     """
     raw_probs = [1.0 / od for od in odds]
     total_sum = sum(raw_probs)
@@ -19,13 +19,13 @@ def remove_margin_wpo(odds):
     """
     วิธี Margin Weights Proportional to Odds (WPO/MPTO)
     ช่วยปรับปรุงความคลาดเคลื่อนจากพฤติกรรมของเจ้ามือที่ชอบบวกค่าน้ำฝั่งทีมรอง (Favorite-Longshot Bias)
-    สูตรคณิตศาสตร์: $p_i = \frac{n - M \times O_i}{n \times O_i}$ หรือเทียบเท่ากับ $\frac{1}{O_i} - \frac{M}{n}$
+    สูตรคณิตศาสตร์: p_i = (n - M * O_i) / (n * O_i)
     """
     raw_probs = [1.0 / od for od in odds]
     n = len(odds)
     overround = sum(raw_probs) - 1.0  # ค่า M (Margin/Overround)
     
-    true_probs =
+    true_probs =  # แก้ไขจากของเดิมที่พิมพ์ตกหล่นไป
     for od in odds:
         # ลบส่วนแบ่ง Overround เฉลี่ยออกจากแต่ละฝั่ง
         p_i = (1.0 / od) - (overround / n)
@@ -48,7 +48,7 @@ def poisson_pmf(k, lamb):
 
 def d_coles_tau(x, y, lambda_h, lambda_a, rho):
     """
-    ฟังก์ชันปรับปรุงสหสัมพันธ์ Dixon-Coles $\tau(x, y)$
+    ฟังก์ชันปรับปรุงสหสัมพันธ์ Dixon-Coles tau(x, y)
     เพื่อแก้ปัญหาความไม่เป็นอิสระต่อกันของคู่สกอร์ไลน์ต่ำ (0-0, 1-0, 0-1, 1-1)
     """
     if x == 0 and y == 0:
@@ -104,12 +104,12 @@ def calculate_match_odds(lambda_h, lambda_a, rho=0.0, max_goals=10):
 # 3. ส่วนทดสอบการทำงาน (Execution)
 # =====================================================================
 if __name__ == "__main__":
-    print("=== [1] ทดสอบระบบถอดค่าน้ำของเจ้ามือ (De-vigging) ===")
-    # สมมติราคา 1X2 จากหน้าเว็บเจ้ามือ: Lazio (2.32), Draw (3.21), Napoli (3.59)
+    print("=== [3] ทดสอบระบบถอดค่าน้ำของเจ้ามือ (De-vigging) ===")
+    # สมมติราคา 1X2 จากหน้าเว็บเจ้ามือ: Lazio (2.32), Draw (3.21), Napoli (3.59) 
     bookie_odds = [2.32, 3.21, 3.59]
-    print(f"ราคาหน้าเว็บเจ้ามือ: Home={bookie_odds}, Draw={bookie_odds[1]}, Away={bookie_odds[2]}")
+    print(f"ราคาหน้าเว็บเจ้ามือ: Home={bookie_odds}, Draw={bookie_odds[3]}, Away={bookie_odds[4]}")
     
-    # คำนวณหา Overround สะสม [6, 7]
+    # คำนวณหา Overround สะสม [5, 6]
     margin = (sum(1.0/o for o in bookie_odds) - 1.0) * 100
     print(f"ค่า Overround (อัตราส่วนเกินความน่าจะเป็น): {margin:.2f}%")
     
@@ -117,21 +117,22 @@ if __name__ == "__main__":
     p_basic = remove_margin_basic(bookie_odds)
     p_wpo = remove_margin_wpo(bookie_odds)
     
+    outcomes =
     print("\nความน่าจะเป็นจริง (True Probabilities) หลังหักค่าน้ำออก:")
     print("-> วิธี Basic Multiplicative (เฉลี่ยเท่ากันทุกฝั่ง):")
-    for outcome, p in zip(, p_basic):
+    for outcome, p in zip(outcomes, p_basic):
         print(f"   {outcome}: {p*100:.2f}% | ราคายุติธรรม (Fair Odds): {1.0/p:.3f}")
         
     print("\n-> วิธี Margin Proportional to Odds (WPO - ชดเชยแรงบิดของราคาฝั่งทีมรอง):")
-    for outcome, p in zip(, p_wpo):
+    for outcome, p in zip(outcomes, p_wpo):
         print(f"   {outcome}: {p*100:.2f}% | ราคายุติธรรม (Fair Odds): {1.0/p:.3f}")
         
     print("\n" + "="*60 + "\n")
     
-    print("=== [2] ทดสอบแบบจำลองคณิตศาสตร์ทำนายผลบอล ===")
+    print("=== [4] ทดสอบแบบจำลองคณิตศาสตร์ทำนายผลบอล ===")
     # สมมติค่า xG เฉลี่ยย้อนหลังจากการคำนวณฟอร์มทีม:
     # เจ้าบ้านคาดหวังยิงประตูได้ (lambda_h) = 1.6 ลูก, ทีมเยือนยิงได้ (lambda_a) = 1.2 ลูก
-    # ค่าสหสัมพันธ์ประตูน้อย (rho) สำหรับ Dixon-Coles ของฟุตบอลลีกปกติจะอยู่ที่ประมาณ -0.10 ถึง -0.15 [2]
+    # ค่าสหสัมพันธ์ประตูน้อย (rho) สำหรับ Dixon-Coles ของฟุตบอลลีกปกติจะอยู่ที่ประมาณ -0.10 ถึง -0.15 [4]
     lambda_h = 1.6
     lambda_a = 1.2
     rho = -0.11
