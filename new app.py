@@ -1,13 +1,19 @@
+import streamlit as st
 import math
+import time
+import random
+
+# ตั้งค่าหน้าเว็บของ Streamlit ให้ออกแบบแบบกว้าง (Wide Layout)
+st.set_page_config(page_title="โปรแกรมคำนวณราคาบอลและจำลองระบบ Live Bet", layout="wide")
 
 # =====================================================================
-# 1. ฟังก์ชันถอดส่วนต่างค่าน้ำ (De-vigging Calculators)
+# 1. ฟังก์ชันคำนวณคณิตศาสตร์และถอดค่าน้ำ (De-vigging & Odds Engine)
 # =====================================================================
 
 def remove_margin_basic(odds):
     """
-    วิธี Basic (Multiplicative) De-vigging
-    สูตรคณิตศาสตร์: p_i = r_i / sum(r) โดยที่ r_i = 1 / O_i
+    วิธี Basic (Multiplicative) De-vigging [4]
+    สูตรคณิตศาสตร์: $p_i=\frac{r_i}{\sum r}$ โดยที่ $r_i=\frac{1}{O_i}$
     """
     raw_probs = [1.0 / od for od in odds]
     total_sum = sum(raw_probs)
@@ -17,39 +23,41 @@ def remove_margin_basic(odds):
 
 def remove_margin_wpo(odds):
     """
-    วิธี Margin Weights Proportional to Odds (WPO/MPTO)
-    ช่วยปรับปรุงความคลาดเคลื่อนจากพฤติกรรมของเจ้ามือที่ชอบบวกค่าน้ำฝั่งทีมรอง (Favorite-Longshot Bias)
-    สูตรคณิตศาสตร์: p_i = (n - M * O_i) / (n * O_i) [4]
+    วิธี Margin Weights Proportional to Odds (WPO) [4]
+    ช่วยชดเชยค่าอคติโปรด/รอง (Favorite-Longshot Bias) ในระบบอัตราต่อรองของเจ้ามือ
+    สูตรคณิตศาสตร์: $p_i=\frac{n-M \times O_i}{n \times O_i}$
     """
     raw_probs = [1.0 / od for od in odds]
     n = len(odds)
     overround = sum(raw_probs) - 1.0  # ค่า M (Margin/Overround)
     
-    true_probs =  # แก้ไขโครงสร้าง: กำหนดเป็นลิสต์ว่างเพื่อรอรับการเก็บข้อมูล
+    true_probs =
     for od in odds:
         # ลบส่วนแบ่ง Overround เฉลี่ยออกจากแต่ละฝั่ง
         p_i = (1.0 / od) - (overround / n)
-        # ป้องกันไม่ให้ค่าติดลบในกรณีที่ทีมรองมีโอกาสชนะต่ำมาก
+        # ป้องกันไม่ให้โอกาสชนะติดลบกรณีที่เป็นฝั่งทีมรองมากๆ
         true_probs.append(max(0.0001, p_i))
         
-    # Re-normalize อีกครั้งเพื่อป้องกันความคลาดเคลื่อนทางทศนิยม
+    # ปรับสมดุลความน่าจะเป็นรวมให้เท่ากับ 100% (Normalization)
     total_sum = sum(true_probs)
     return [tp / total_sum for tp in true_probs]
 
 
 # =====================================================================
-# 2. แบบจำลองสถิติทำนายผลประตู (Poisson & Dixon-Coles)
+# 2. แบบจำลองสถิติเชิงปริมาณการทำประตู (Poisson & Dixon-Coles Models)
 # =====================================================================
 
 def poisson_pmf(k, lamb):
-    """สูตรคำนวณ Poisson Probability Mass Function (โอกาสในการเกิดประตู k ประตู)"""
+    """คำนวณ Poisson Probability Mass Function (โอกาสการเกิดประตูจำนวน k ลูก) [3, 6]"""
+    if lamb <= 0:
+        return 1.0 if k == 0 else 0.0
     return (math.exp(-lamb) * (lamb ** k)) / math.factorial(k)
 
 
 def d_coles_tau(x, y, lambda_h, lambda_a, rho):
     """
-    ฟังก์ชันปรับปรุงสหสัมพันธ์ Dixon-Coles tau(x, y)
-    เพื่อแก้ปัญหาความไม่เป็นอิสระต่อกันของคู่สกอร์ไลน์ต่ำ (0-0, 1-0, 0-1, 1-1)
+    ฟังก์ชันปรับปรุงสหสัมพันธ์ Dixon-Coles $\tau(x, y)$ [3, 6]
+    เพื่อเพิ่มความแม่นยำในการวิเคราะห์โอกาสเกิดประตูสำหรับสกอร์ไลน์ต่ำ (0-0, 1-0, 0-1, 1-1)
     """
     if x == 0 and y == 0:
         return 1.0 - lambda_h * lambda_a * rho
@@ -64,12 +72,10 @@ def d_coles_tau(x, y, lambda_h, lambda_a, rho):
 
 
 def calculate_match_odds(lambda_h, lambda_a, rho=0.0, max_goals=10):
-    """
-    คำนวณโอกาสผลชนะ เสมอ แพ้ (1X2 Probabilities) โดยใช้แบบจำลองสถิติ
-    """
+    """คำนวณความน่าจะเป็นของผลชนะ เสมอ แพ้ (1X2) จากค่าคาดหวังในการทำประตู (xG) [3]"""
     prob_matrix = [[0.0 for _ in range(max_goals + 1)] for _ in range(max_goals + 1)]
     
-    # สร้างตารางโอกาสสกอร์บอร์ด (Scoreline Probability Grid)
+    # คำนวณความน่าจะเป็นของแต่ละสกอร์บอร์ดที่เป็นไปได้
     for x in range(max_goals + 1):
         for y in range(max_goals + 1):
             p_x = poisson_pmf(x, lambda_h)
@@ -77,13 +83,15 @@ def calculate_match_odds(lambda_h, lambda_a, rho=0.0, max_goals=10):
             tau = d_coles_tau(x, y, lambda_h, lambda_a, rho)
             prob_matrix[x][y] = p_x * p_y * tau
             
-    # ปรับความสมดุลของตาราง (Normalization)
+    # Normalize ความน่าจะเป็นในตารางทั้งหมดให้เท่ากับ 1.00
     total_p = sum(sum(row) for row in prob_matrix)
+    if total_p == 0:
+        return 0.33, 0.33, 0.33
     for x in range(max_goals + 1):
         for y in range(max_goals + 1):
             prob_matrix[x][y] /= total_p
             
-    # รวมผลลัพธ์เพื่อหาความน่าจะเป็นชนะ, เสมอ, แพ้
+    # รวบรวมโอกาสชนะ เสมอ แพ้
     home_win = 0.0
     draw = 0.0
     away_win = 0.0
@@ -101,55 +109,175 @@ def calculate_match_odds(lambda_h, lambda_a, rho=0.0, max_goals=10):
 
 
 # =====================================================================
-# 3. ส่วนทดสอบการทำงาน (Execution)
+# 3. ส่วนควบคุมโครงสร้างหน้าเว็บและการโต้ตอบ (Streamlit UI Layout)
 # =====================================================================
-if __name__ == "__main__":
-    print("=== [1] ทดสอบระบบถอดค่าน้ำของเจ้ามือ (De-vigging) ===")
-    # สมมติราคา 1X2 จริงจากตลาด: Lazio (2.32), Draw (3.21), Napoli (3.59) [3]
-    bookie_odds = [2.32, 3.21, 3.59]
-    print(f"ราคาหน้าเว็บเจ้ามือ: Home={bookie_odds}, Draw={bookie_odds[1]}, Away={bookie_odds[2]}")
+
+st.title("⚽ Football Betting Math Engine & Live Delay Simulator")
+st.write("แอปพลิเคชันสำหรับคำนวณราคาบอล ดึงค่าสถิติ และทดสอบการป้องกันระบบเดิมพันแบบเรียลไทม์")
+
+# จัดทำแท็บสำหรับเครื่องมือแต่ละตัวเพื่อความสวยงามและเป็นระเบียบ
+tab1, tab2, tab3 = st.tabs()
+
+# --- แท็บที่ 1: เครื่องคำนวณถอดค่าน้ำ ---
+with tab1:
+    st.header("เครื่องมือวิเคราะห์อัตรากำไรและถอดค่าน้ำของเจ้ามือ")
+    st.write("ป้อนอัตราต่อรองพูล (1X2) จากหน้าเว็บของเจ้ามือเพื่อคำนวณหาโอกาสเกิดผลจริงและตรวจสอบราคากลางที่ยุติธรรม")
     
-    # คำนวณหา Overround สะสม
-    margin = (sum(1.0/o for o in bookie_odds) - 1.0) * 100
-    print(f"ค่า Overround (อัตราส่วนเกินความน่าจะเป็น): {margin:.2f}%")
-    
-    # ประมวลผลถอดค่าน้ำ
-    p_basic = remove_margin_basic(bookie_odds)
-    p_wpo = remove_margin_wpo(bookie_odds)
-    
-    outcomes =  # แก้ไขโครงสร้าง: กำหนดชื่อผลลัพธ์ให้ชัดเจน
-    print("\nความน่าจะเป็นจริง (True Probabilities) หลังหักค่าน้ำออก:")
-    print("-> วิธี Basic Multiplicative (เฉลี่ยเท่ากันทุกฝั่ง):")
-    for outcome, p in zip(outcomes, p_basic):
-        print(f"   {outcome}: {p*100:.2f}% | ราคายุติธรรม (Fair Odds): {1.0/p:.3f}")
+    col1, col2 = st.columns(2)
+    with col1:
+        h_odds = st.number_input("ราคาเจ้าบ้านชนะ (Home Odds)", min_value=1.01, value=2.32, step=0.01)
+        d_odds = st.number_input("ราคาเสมอ (Draw Odds)", min_value=1.01, value=3.21, step=0.01)
+        a_odds = st.number_input("ราคาทีมเยือนชนะ (Away Odds)", min_value=1.01, value=3.59, step=0.01)
         
-    print("\n-> วิธี Margin Proportional to Odds (WPO - ชดเชยแรงบิดของราคาฝั่งทีมรอง):")
-    for outcome, p in zip(outcomes, p_wpo):
-        print(f"   {outcome}: {p*100:.2f}% | ราคายุติธรรม (Fair Odds): {1.0/p:.3f}")
+        input_odds = [h_odds, d_odds, a_odds]
         
-    print("\n" + "="*60 + "\n")
+    with col2:
+        # คำนวณ Overround สะสม
+        raw_probs = [1.0 / o for o in input_odds]
+        overround_percent = (sum(raw_probs) - 1.0) * 100
+        st.metric("ค่า Overround ของเจ้ามือ (ค่าน้ำ)", f"{overround_percent:.2f}%")
+        
+        # ถอดค่าน้ำด้วยวิธีสถิติที่แตกต่างกัน [4]
+        p_basic = remove_margin_basic(input_odds)
+        p_wpo = remove_margin_wpo(input_odds)
+        
+        st.subheader("ผลลัพธ์การแปลงความน่าจะเป็นหลังหักค่าน้ำออก")
+        
+        table_data = {
+            "ฝั่งผลชนะ":,
+            "ราคาหน้าเว็บ": input_odds,
+            "ความน่าจะเป็น (วิธี Basic)": [f"{p*100:.2f}%" for p in p_basic],
+            "ราคายุติธรรม (วิธี Basic)": [f"{1.0/p:.3f}" for p in p_basic],
+            "ความน่าจะเป็น (วิธี WPO)": [f"{p*100:.2f}%" for p in p_wpo],
+            "ราคายุติธรรม (วิธี WPO)": [f"{1.0/p:.3f}" for p in p_wpo]
+        }
+        st.table(table_data)
+        st.info("💡 หมายเหตุ: วิธี WPO (Margin Weights Proportional to Odds) ได้รับการทดสอบแล้วว่าให้ความแม่นยำทางสถิติสูงในการสะท้อนความน่าจะเป็นแท้จริงเมื่อราคาทั้งสองฝั่งมีความห่างชั้นกันสูง [4]")
+
+# --- แท็บที่ 2: แบบจำลองทำนายผลประตู ---
+with tab2:
+    st.header("แบบจำลองพยากรณ์ความน่าจะเป็นจากการยิงประตูเฉลี่ย")
+    st.write("ระบุระดับฟอร์มการเล่นของทีม (Expected Goals - xG) เพื่อเปรียบเทียบผลลัพธ์ความน่าจะเป็นของผลแข่งขันแบบดั้งเดิมกับแบบจำลอง Dixon-Coles [3, 6]")
     
-    print("=== [2] ทดสอบแบบจำลองคณิตศาสตร์ทำนายผลบอล ===")
-    # สมมติค่า xG เฉลี่ยย้อนหลังจากการคำนวณฟอร์มทีม:
-    # เจ้าบ้านคาดหวังยิงประตูได้ (lambda_h) = 1.6 ลูก, ทีมเยือนยิงได้ (lambda_a) = 1.2 ลูก
-    # ค่าสหสัมพันธ์ประตูน้อย (rho) สำหรับ Dixon-Coles ของฟุตบอลลีกปกติจะอยู่ที่ประมาณ -0.11
-    lambda_h = 1.6
-    lambda_a = 1.2
-    rho = -0.11
+    col1, col2 = st.columns(2)
+    with col1:
+        lambda_h = st.slider("ระดับฟอร์มเกมรุกเจ้าบ้าน (Home Expected Goals - xG)", min_value=0.0, max_value=5.0, value=1.6, step=0.1)
+        lambda_a = st.slider("ระดับฟอร์มเกมรุกทีมเยือน (Away Expected Goals - xG)", min_value=0.0, max_value=5.0, value=1.2, step=0.1)
+        rho_val = st.slider("ค่าสหสัมพันธ์ประตูน้อย Dixon-Coles (rho)", min_value=-0.30, max_value=0.0, value=-0.11, step=0.01)
+        
+    with col2:
+        st.subheader("เปรียบเทียบสถิติความน่าจะเป็นของการชนะ เสมอ แพ้")
+        
+        # ประมวลผลจากทั้ง 2 แบบจำลอง [3]
+        p_hw, p_dr, p_aw = calculate_match_odds(lambda_h, lambda_a, rho=0.0)
+        dc_hw, dc_dr, dc_aw = calculate_match_odds(lambda_h, lambda_a, rho=rho_val)
+        
+        prediction_results = {
+            "แบบจำลองทางสถิติ":,
+            "โอกาสเจ้าบ้านชนะ": [f"{p_hw*100:.2f}%", f"{dc_hw*100:.2f}%"],
+            "โอกาสเสมอ (Draw)": [f"{p_dr*100:.2f}%", f"{dc_dr*100:.2f}%"],
+            "โอกาสทีมเยือนชนะ": [f"{p_aw*100:.2f}%", f"{dc_aw*100:.2f}%"]
+        }
+        st.table(prediction_results)
+        st.write("📊 **วิเคราะห์เชิงสถิติ:** แบบจำลอง Dixon-Coles จะดึงตัวแปร $\\rho$ เข้ามาชดเชยและดึงสัดส่วนความน่าจะเป็นสำหรับการเสมอในกรณีสกอร์ต่ำ (เช่น 0-0 หรือ 1-1) ให้ใกล้เคียงกับพฤติกรรมจริงของมนุษย์ในสนามฟุตบอล [3, 7]")
+
+# --- แท็บที่ 3: ระบบจำลองสด & Bet Delay ---
+with tab3:
+    st.header("ระบบวิเคราะห์ความเสี่ยงและหน่วงเวลารับเดิมพันเรียลไทม์ (Live Bet Delay Simulator)")
+    st.write("ทดลองป้อนเหตุการณ์ในสนามจำลอง เพื่อศึกษาว่าระบบรักษาความปลอดภัยของซอฟต์แวร์สามารถสกัดกั้นกลุ่มนักเก็งกำไรความหน่วงข้อมูล (Latency Arbitrage) ได้อย่างไร [5]")
     
-    print(f"คาดการณ์อัตราทำประตู (Expected Goals): เจ้าบ้าน={lambda_h}, ทีมเยือน={lambda_a}")
-    print(f"Dixon-Coles correlation adjustment (rho): {rho}")
+    # ติดตั้งโครงสร้างสถานะข้อมูลของ Streamlit Session State เพื่อความเสถียรในการรัน
+    if "live_event_stream" not in st.session_state:
+        st.session_state["live_event_stream"] =
+    if "bet_history" not in st.session_state:
+        st.session_state["bet_history"] =
+        
+    col_ctrl, col_display = st.columns([1, 2])
     
-    # แบบที่ 1: คำนวณผ่าน Poisson ปกติ (ไม่มีการชดเชยสหสัมพันธ์สกอร์ต่ำ)
-    p_hw, p_dr, p_aw = calculate_match_odds(lambda_h, lambda_a, rho=0.0)
-    print("\nผลลัพธ์จากแบบจำลองพัวซองแบบเดิม (Standard Poisson):")
-    print(f"  โอกาสเจ้าบ้านชนะ: {p_hw*100:.2f}%")
-    print(f"  โอกาสเสมอ:       {p_dr*100:.2f}%")
-    print(f"  โอกาสทีมเยือนชนะ: {p_aw*100:.2f}%")
-    
-    # แบบที่ 2: คำนวณผ่าน Dixon-Coles (เพิ่มตัวแปรสหสัมพันธ์สกอร์ต่ำ)
-    dc_hw, dc_dr, dc_aw = calculate_match_odds(lambda_h, lambda_a, rho=rho)
-    print("\nผลลัพธ์จากแบบจำลอง Dixon-Coles (ปรับปรุงสหสัมพันธ์แล้ว):")
-    print(f"  โอกาสเจ้าบ้านชนะ: {dc_hw*100:.2f}%")
-    print(f"  โอกาสเสมอ (Draw): {dc_dr*100:.2f}% (ปรับสัดส่วนในแมตช์สกอร์ต่ำให้แม่นยำขึ้น)")
-    print(f"  โอกาสทีมเยือนชนะ: {dc_aw*100:.2f}%")
+    with col_ctrl:
+        st.subheader("แผงจำลองการป้อนข้อมูลสนามสด")
+        
+        if st.button("🚨 จำลองการยิงประตู (Goal!)"):
+            team = random.choice(["Home", "Away"])
+            event_data = {
+                "timestamp": time.time(),
+                "event": "Goal",
+                "team": team,
+                "time_str": time.strftime('%H:%M:%S')
+            }
+            st.session_state["live_event_stream"].append(event_data)
+            st.toast(f"⚽ Goal! ฝั่ง {team} ยิงประตูได้เรียบร้อยแล้ว")
+            
+        if st.button("🟥 จำลองใบแดง (Red Card)"):
+            team = random.choice(["Home", "Away"])
+            event_data = {
+                "timestamp": time.time(),
+                "event": "Red Card",
+                "team": team,
+                "time_str": time.strftime('%H:%M:%S')
+            }
+            st.session_state["live_event_stream"].append(event_data)
+            st.toast(f"🟥 Red Card! ฝั่ง {team} ได้รับใบแดง")
+            
+        if st.button("🧹 ล้างข้อมูลประวัติและเหตุการณ์ทั้งหมด"):
+            st.session_state["live_event_stream"] =
+            st.session_state["bet_history"] =
+            st.rerun()
+
+        st.write("---")
+        st.subheader("กล่องส่งใบเดิมพัน (Submit Ticket)")
+        bet_selection = st.selectbox("เลือกประเภทการเดิมพัน",)
+        delay_seconds = st.slider("ตั้งค่าระยะเวลาหน่วงตั๋ว (Bet Delay Seconds)", min_value=1, max_value=10, value=6)
+        
+        if st.button("📥 ยืนยันการส่งเดิมพัน"):
+            submission_time = time.time()
+            st.info(f"⏳ ตั๋วอยู่ในคิวพักรอตรวจความปลอดภัย (หน่วงเวลา {delay_seconds} วินาที)...")
+            
+            # แสดงแถบความคืบหน้าให้ผู้ใช้งานเห็นภาพจริงบนหน้าจอ
+            progress_bar = st.progress(0)
+            for percent in range(100):
+                time.sleep(delay_seconds / 100.0)
+                progress_bar.progress(percent + 1)
+            
+            # การประมวลผลประวัติ Kafka Stream ย้อนหลังเพื่อตรวจสอบความปลอดภัย [5]
+            is_valid = True
+            triggered_event = None
+            
+            for event in st.session_state["live_event_stream"]:
+                # หากมีเหตุการณ์ระดับรุนแรง (Material Events) เกิดขึ้นหลังจากเวลาที่กดยื่นตั๋ว แต่อยู่ภายในช่วงดีเลย์
+                if event["timestamp"] >= submission_time and event["timestamp"] <= (submission_time + delay_seconds):
+                    if event["event"] in:
+                        is_valid = False
+                        triggered_event = event
+                        break
+            
+            # บันทึกสถานะบิล
+            bet_record = {
+                "time": time.strftime('%H:%M:%S'),
+                "selection": bet_selection,
+                "status": "Accepted" if is_valid else "Rejected",
+                "reason": "บิลสะอาด ปราศจากเหตุการณ์แทรกแซงในช่วง Bet Delay" if is_valid else f"ตรวจพบเหตุการณ์สำคัญในเกมเกิดขึ้นก่อนการอนุมัติ: {triggered_event['event']} ({triggered_event['team']})"
+            }
+            st.session_state["bet_history"].insert(0, bet_record)
+            
+            if is_valid:
+                st.success("✅ ตั๋วเดิมพันของคุณได้รับการยอมรับ (Accepted) สำเร็จ!")
+            else:
+                st.error(f"❌ ปฏิเสธตั๋วเดิมพัน (Rejected)! - {bet_record['reason']} [5]")
+                
+    with col_display:
+        st.subheader("สตรีมมิ่งข้อมูลดิบจากสนามแข่งขันจริง (Mockup Event Stream)")
+        if not st.session_state["live_event_stream"]:
+            st.write("*ระบบสตรีมกำลังรอตรวจจับเหตุการณ์ในสนาม...*")
+        else:
+            for ev in reversed(st.session_state["live_event_stream"]):
+                st.write(f"⏱️ **{ev['time_str']}** - **{ev['event']}** ของทีม **{ev['team']}**")
+                
+        st.write("---")
+        st.subheader("บันทึกการตรวจรับและสถานะบิลเดิมพัน (Bet Ledger)")
+        if not st.session_state["bet_history"]:
+            st.write("*ยังไม่มีการทำรายการเดิมพันในเซสชันนี้*")
+        else:
+            for b in st.session_state["bet_history"]:
+                status_icon = "🟢" if b["status"] == "Accepted" else "🔴"
+                st.write(f"{status_icon} **[{b['time']}]** เลือก: {b['selection']} -> **สถานะ: {b['status']}** ({b['reason']})")
