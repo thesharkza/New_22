@@ -31,7 +31,7 @@ def remove_margin_wpo(odds):
     n = len(odds)
     overround = sum(raw_probs) - 1.0  # ค่า M (Margin/Overround)
     
-    true_probs =  # แก้ไขข้อผิดพลาด: กำหนดให้เป็นลิสต์ว่างเริ่มต้นที่สมบูรณ์ตามไวยากรณ์ Python
+    true_probs = []  # กำหนดเป็นลิสต์ว่าง (Empty list) เพื่อรอรับข้อมูลในขั้นตอนถัดไป
     for od in odds:
         # ลบส่วนแบ่ง Overround เฉลี่ยออกจากแต่ละฝั่ง
         p_i = (1.0 / od) - (overround / n)
