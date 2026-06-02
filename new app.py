@@ -19,13 +19,13 @@ def remove_margin_wpo(odds):
     """
     วิธี Margin Weights Proportional to Odds (WPO/MPTO)
     ช่วยปรับปรุงความคลาดเคลื่อนจากพฤติกรรมของเจ้ามือที่ชอบบวกค่าน้ำฝั่งทีมรอง (Favorite-Longshot Bias)
-    สูตรคณิตศาสตร์: p_i = (n - M * O_i) / (n * O_i)
+    สูตรคณิตศาสตร์: p_i = (n - M * O_i) / (n * O_i) [4]
     """
     raw_probs = [1.0 / od for od in odds]
     n = len(odds)
     overround = sum(raw_probs) - 1.0  # ค่า M (Margin/Overround)
     
-    true_probs =  # แก้ไขโครงสร้างไวยากรณ์: กำหนดเป็นลิสต์ว่างเพื่อรอรับการเก็บข้อมูล
+    true_probs =  # แก้ไขโครงสร้าง: กำหนดเป็นลิสต์ว่างเพื่อรอรับการเก็บข้อมูล
     for od in odds:
         # ลบส่วนแบ่ง Overround เฉลี่ยออกจากแต่ละฝั่ง
         p_i = (1.0 / od) - (overround / n)
@@ -105,7 +105,7 @@ def calculate_match_odds(lambda_h, lambda_a, rho=0.0, max_goals=10):
 # =====================================================================
 if __name__ == "__main__":
     print("=== [1] ทดสอบระบบถอดค่าน้ำของเจ้ามือ (De-vigging) ===")
-    # สมมติราคา 1X2 จากหน้าเว็บเจ้ามือ: Lazio (2.32), Draw (3.21), Napoli (3.59) 
+    # สมมติราคา 1X2 จริงจากตลาด: Lazio (2.32), Draw (3.21), Napoli (3.59) [3]
     bookie_odds = [2.32, 3.21, 3.59]
     print(f"ราคาหน้าเว็บเจ้ามือ: Home={bookie_odds}, Draw={bookie_odds[1]}, Away={bookie_odds[2]}")
     
@@ -117,7 +117,7 @@ if __name__ == "__main__":
     p_basic = remove_margin_basic(bookie_odds)
     p_wpo = remove_margin_wpo(bookie_odds)
     
-    outcomes =  # แก้ไขโครงสร้างไวยากรณ์: กำหนดชื่อตัวแปรให้ตรงความหมาย
+    outcomes =  # แก้ไขโครงสร้าง: กำหนดชื่อผลลัพธ์ให้ชัดเจน
     print("\nความน่าจะเป็นจริง (True Probabilities) หลังหักค่าน้ำออก:")
     print("-> วิธี Basic Multiplicative (เฉลี่ยเท่ากันทุกฝั่ง):")
     for outcome, p in zip(outcomes, p_basic):
@@ -130,8 +130,9 @@ if __name__ == "__main__":
     print("\n" + "="*60 + "\n")
     
     print("=== [2] ทดสอบแบบจำลองคณิตศาสตร์ทำนายผลบอล ===")
-    # สมมติค่า xG คาดหวังทำประตู: เจ้าบ้าน (1.6) และทีมเยือน (1.2)
-    # ค่าสหสัมพันธ์ประตูน้อย (rho) สำหรับ Dixon-Coles ของฟุตบอลลีกปกติจะอยู่ที่ประมาณ -0.10 ถึง -0.15 [5, 6]
+    # สมมติค่า xG เฉลี่ยย้อนหลังจากการคำนวณฟอร์มทีม:
+    # เจ้าบ้านคาดหวังยิงประตูได้ (lambda_h) = 1.6 ลูก, ทีมเยือนยิงได้ (lambda_a) = 1.2 ลูก
+    # ค่าสหสัมพันธ์ประตูน้อย (rho) สำหรับ Dixon-Coles ของฟุตบอลลีกปกติจะอยู่ที่ประมาณ -0.11
     lambda_h = 1.6
     lambda_a = 1.2
     rho = -0.11
@@ -150,5 +151,5 @@ if __name__ == "__main__":
     dc_hw, dc_dr, dc_aw = calculate_match_odds(lambda_h, lambda_a, rho=rho)
     print("\nผลลัพธ์จากแบบจำลอง Dixon-Coles (ปรับปรุงสหสัมพันธ์แล้ว):")
     print(f"  โอกาสเจ้าบ้านชนะ: {dc_hw*100:.2f}%")
-    print(f"  โอกาสเสมอ (Draw): {dc_dr*100:.2f}%")
+    print(f"  โอกาสเสมอ (Draw): {dc_dr*100:.2f}% (ปรับสัดส่วนในแมตช์สกอร์ต่ำให้แม่นยำขึ้น)")
     print(f"  โอกาสทีมเยือนชนะ: {dc_aw*100:.2f}%")
