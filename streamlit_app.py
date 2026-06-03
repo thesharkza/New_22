@@ -152,7 +152,6 @@ with tab1:
     # ตัวเลือกรูปแบบราคา (HK Odds / Decimal Odds)
     odds_format = st.radio(
         "รูปแบบราคากลุ่มแฮนดิแคป (AH) และ สูง/ต่ำ (O/U)",
-       ,
         index=0
     )
     
