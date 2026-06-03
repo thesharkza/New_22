@@ -231,7 +231,7 @@ with tab1:
         st.metric("ค่าน้ำตลาด 1X2 (Overround)", f"{margin_1x2:.2f}%")
         
         # แก้ไข outcomes_1x2 ให้ระบุข้อมูลลิสต์จำลองที่ถูกต้องสมบูรณ์แบบ
-        outcomes_1x2 =
+        outcomes_1x2 = ["เหย้า (Home)", "เสมอ (Draw)", "เยือน (Away)"]
         df_1x2 = pd.DataFrame({
             "ผลชนะ": outcomes_1x2,
             "ราคาตั้งต้น": input_1x2,
@@ -296,7 +296,7 @@ with tab2:
         
         # แก้ไขการระบุข้อมูลจำลองในดิกชันนารี prediction_results ให้มีโครงสร้างที่ถูกต้อง
         prediction_results = {
-            "แบบจำลองทางสถิติ":,
+            "แบบจำลองทางสถิติ": ["Poisson", "Dixon-Coles"],
             "โอกาสเจ้าบ้านชนะ": [f"{p_hw*100:.2f}%", f"{dc_hw*100:.2f}%"],
             "โอกาสเสมอ (Draw)": [f"{p_dr*100:.2f}%", f"{dc_dr*100:.2f}%"],
             "โอกาสทีมเยือนชนะ": [f"{p_aw*100:.2f}%", f"{dc_aw*100:.2f}%"]
@@ -312,9 +312,9 @@ with tab3:
     
     # แก้ไขกำหนดค่าเริ่มต้น Session State เป็นลิสต์ว่างที่ถูกต้องตามกฎไวยากรณ์ Python
     if "live_event_stream" not in st.session_state:
-        st.session_state["live_event_stream"] =
+        st.session_state["live_event_stream"] = []
     if "bet_history" not in st.session_state:
-        st.session_state["bet_history"] =
+        st.session_state["bet_history"] = []
         
     col_ctrl, col_display = st.columns([7, 8])
     
@@ -344,8 +344,8 @@ with tab3:
             st.toast(f"🟥 Red Card! ฝั่ง {team} ได้รับใบแดง")
             
         if st.button("🧹 ล้างข้อมูลประวัติและเหตุการณ์ทั้งหมด"):
-            st.session_state["live_event_stream"] =
-            st.session_state["bet_history"] =
+            st.session_state["live_event_stream"] = []
+            st.session_state["bet_history"] = []
             st.rerun()
 
         st.write("---")
@@ -375,7 +375,7 @@ with tab3:
                 # หากมีเหตุการณ์สำคัญเกิดขึ้น "หลัง" วินาทีที่ผู้เล่นกดยื่นตั๋ว แต่อยู่ภายในกรอบเวลาที่โดนกักตั๋วไว้
                 if event["timestamp"] >= submission_time and event["timestamp"] <= (submission_time + delay_seconds):
                     # แก้ไขเงื่อนไขตรวจสอบเหตุการณ์ที่ขัดแย้งต่อผลการแข่งขัน (Material Events) ให้ครบถ้วนสมบูรณ์
-                    if event["event"] in:
+                    if event["event"] in ["Goal", "Red Card"]:
                         is_valid = False
                         triggered_event = event
                         break
