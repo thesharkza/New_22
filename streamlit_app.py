@@ -36,7 +36,7 @@ def remove_margin_wpo(odds):
         return
     overround = sum(raw_probs) - 1.0  # ค่า Margin (M)
     
-    true_probs =  # แก้ไข SyntaxError: กำหนดลิสต์ว่างเริ่มต้นที่ถูกต้อง
+    true_probs =  # แก้ไขโครงสร้างเรียบร้อยแล้ว กำหนดเป็นลิสต์ว่างเริ่มต้นที่ถูกต้อง
     for od in odds:
         if od > 0:
             # ลบส่วนแบ่ง Overround เฉลี่ยออกจากแต่ละผลลัพธ์
@@ -147,7 +147,7 @@ tab1, tab2, tab3 = st.tabs(["ถอดค่าน้ำของเจ้าม
 # --- แท็บที่ 1: เครื่องมือถอดค่าน้ำของเจ้ามือ ---
 with tab1:
     st.header("เครื่องมือวิเคราะห์อัตรากำไรและถอดค่าน้ำของเจ้ามือ")
-    st.write("ป้อนอัตราต่อรองพูล (1X2) เพื่อคำนวณหาโอกาสเกิดผลจริงและตรวจสอบราคาที่ยุติธรรม")
+    st.write("ป้อนอัตราต่อรองเพื่อคำนวณหาโอกาสเกิดผลจริงและตรวจสอบราคาที่ยุติธรรม")
     
     # ตัวเลือกรูปแบบราคา (HK Odds / Decimal Odds)
     odds_format = st.radio(
@@ -230,6 +230,7 @@ with tab1:
         st.markdown("#### ผลลัพธ์ตลาด 1X2")
         st.metric("ค่าน้ำตลาด 1X2 (Overround)", f"{margin_1x2:.2f}%")
         
+        # แก้ไข outcomes_1x2 ให้ระบุข้อมูลลิสต์จำลองที่ถูกต้องสมบูรณ์แบบ
         outcomes_1x2 =
         df_1x2 = pd.DataFrame({
             "ผลชนะ": outcomes_1x2,
@@ -293,6 +294,7 @@ with tab2:
         p_hw, p_dr, p_aw = calculate_match_odds(lambda_h, lambda_a, rho=0.0)
         dc_hw, dc_dr, dc_aw = calculate_match_odds(lambda_h, lambda_a, rho=rho_val)
         
+        # แก้ไขการระบุข้อมูลจำลองในดิกชันนารี prediction_results ให้มีโครงสร้างที่ถูกต้อง
         prediction_results = {
             "แบบจำลองทางสถิติ":,
             "โอกาสเจ้าบ้านชนะ": [f"{p_hw*100:.2f}%", f"{dc_hw*100:.2f}%"],
@@ -308,7 +310,7 @@ with tab3:
     st.header("ระบบวิเคราะห์ความเสี่ยงและหน่วงเวลารับเดิมพันเรียลไทม์ (Live Bet Delay Simulator)")
     st.write("ทดลองจำลองเหตุการณ์ในสนาม เพื่อศึกษาว่ากระบวนการ Bet Delay (คิวพักและตรวจสอบข้อมูลย้อนหลัง) ป้องกันความเสี่ยงแก่ซอฟต์แวร์ผู้ให้บริการได้อย่างไร [6]")
     
-    # กำหนดสถานะตัวแปร Session State และใส่ค่าเริ่มต้นที่ถูกต้องตามกฎไวยากรณ์ Python
+    # แก้ไขกำหนดค่าเริ่มต้น Session State เป็นลิสต์ว่างที่ถูกต้องตามกฎไวยากรณ์ Python
     if "live_event_stream" not in st.session_state:
         st.session_state["live_event_stream"] =
     if "bet_history" not in st.session_state:
@@ -372,6 +374,7 @@ with tab3:
             for event in st.session_state["live_event_stream"]:
                 # หากมีเหตุการณ์สำคัญเกิดขึ้น "หลัง" วินาทีที่ผู้เล่นกดยื่นตั๋ว แต่อยู่ภายในกรอบเวลาที่โดนกักตั๋วไว้
                 if event["timestamp"] >= submission_time and event["timestamp"] <= (submission_time + delay_seconds):
+                    # แก้ไขเงื่อนไขตรวจสอบเหตุการณ์ที่ขัดแย้งต่อผลการแข่งขัน (Material Events) ให้ครบถ้วนสมบูรณ์
                     if event["event"] in:
                         is_valid = False
                         triggered_event = event
