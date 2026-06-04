@@ -147,6 +147,44 @@ def interpret_ah_line(line_str):
     return favorite, magnitude, description
 
 
+def render_market_card(header, margin, labels, offered, probs_wpo, probs_basic):
+    """
+    แสดงผลตลาดหนึ่งตลาดแบบอ่านง่าย:
+    - บรรทัดฟันธงผลที่น่าจะเป็นมากสุด
+    - แถบความน่าจะเป็น (probability bar) ของแต่ละฝั่ง
+    - ตารางละเอียด Basic vs WPO ซ่อนใน expander
+    """
+    st.markdown(f"#### {header}")
+    st.metric("ค่าน้ำ (Overround)", f"{margin:.2f}%")
+
+    if probs_wpo:
+        best_i = max(range(len(probs_wpo)), key=lambda i: probs_wpo[i])
+        fair_best = 1.0 / probs_wpo[best_i] if probs_wpo[best_i] > 0 else 0
+        st.success(
+            f"🎯 ฝั่งที่น่าจะเป็น: **{labels[best_i]}**  ·  "
+            f"โอกาส {probs_wpo[best_i]*100:.1f}%  ·  ราคายุติธรรม {fair_best:.2f}"
+        )
+
+    # แถบความน่าจะเป็นของแต่ละฝั่ง (อิงวิธี WPO)
+    for i, lab in enumerate(labels):
+        p = probs_wpo[i] if i < len(probs_wpo) else 0.0
+        fair = 1.0 / p if p > 0 else 0.0
+        op = offered[i] if i < len(offered) else 0.0
+        st.write(f"**{lab}**  ·  โอกาสจริง {p*100:.1f}%  ·  ยุติธรรม {fair:.2f}  ·  เจ้ามือเปิด {op:.2f}")
+        st.progress(min(1.0, max(0.0, p)))
+
+    with st.expander("📋 ดูตารางละเอียด (Basic vs WPO)"):
+        df = pd.DataFrame({
+            "ฝั่ง": labels,
+            "ราคาตั้งต้น": [f"{o:.2f}" for o in offered],
+            "โอกาส Basic": [f"{p*100:.2f}%" for p in probs_basic],
+            "ยุติธรรม Basic": [f"{1.0/p:.3f}" if p > 0 else "N/A" for p in probs_basic],
+            "โอกาส WPO": [f"{p*100:.2f}%" for p in probs_wpo],
+            "ยุติธรรม WPO": [f"{1.0/p:.3f}" if p > 0 else "N/A" for p in probs_wpo],
+        })
+        st.table(df)
+
+
 # =====================================================================
 # 2. แบบจำลองสถิติเชิงปริมาณการทำประตู (Poisson & Dixon-Coles)
 # =====================================================================
@@ -362,55 +400,59 @@ with tab1:
     st.write("---")
     st.subheader(f"📊 ผลการวิเคราะห์ราคายุติธรรม: {match_title}")
 
+    # ป้ายฝั่งแฮนดิแคปเปลี่ยนตามว่าทีมใดเป็นฝ่ายต่อ
+    if ah_favorite == "away":
+        outcomes_ah = [f"เหย้ารอง (+{ah_magnitude})", f"เยือนต่อ (-{ah_magnitude})"]
+    else:
+        outcomes_ah = [f"เหย้าต่อ (-{ah_magnitude})", f"เยือนรอง (+{ah_magnitude})"]
+    outcomes_1x2 = ["เหย้า (Home)", "เสมอ (Draw)", "เยือน (Away)"]
+    outcomes_ou = ["สูง (Over)", "ต่ำ (Under)"]
+
     out_col1, out_col2, out_col3 = st.columns(3)
-
     with out_col1:
-        st.markdown("#### ผลลัพธ์ตลาด 1X2")
-        st.metric("ค่าน้ำตลาด 1X2 (Overround)", f"{margin_1x2:.2f}%")
-        outcomes_1x2 = ["เหย้า (Home)", "เสมอ (Draw)", "เยือน (Away)"]
-        df_1x2 = pd.DataFrame({
-            "ผลชนะ": outcomes_1x2,
-            "ราคาตั้งต้น": input_1x2,
-            "โอกาสจริง (Basic)": [f"{p*100:.2f}%" for p in p_1x2_basic],
-            "ราคายุติธรรม (Basic)": [f"{1.0/p:.3f}" if p > 0 else "N/A" for p in p_1x2_basic],
-            "โอกาสจริง (WPO)": [f"{p*100:.2f}%" for p in p_1x2_wpo],
-            "ราคายุติธรรม (WPO)": [f"{1.0/p:.3f}" if p > 0 else "N/A" for p in p_1x2_wpo],
-        })
-        st.table(df_1x2)
-
+        render_market_card("ตลาด 1X2", margin_1x2, outcomes_1x2,
+                           input_1x2, p_1x2_wpo, p_1x2_basic)
     with out_col2:
-        st.markdown(f"#### ผลลัพธ์ตลาด AH (ราคาแฮนดิแคป: {ah_line})")
-        st.metric("ค่าน้ำตลาด AH (Overround)", f"{margin_ah:.2f}%")
-        # ป้ายฝั่งแฮนดิแคปเปลี่ยนตามว่าทีมใดเป็นฝ่ายต่อ
-        if ah_favorite == "away":
-            outcomes_ah = [f"เหย้ารอง (Home +{ah_magnitude})", f"เยือนต่อ (Away -{ah_magnitude})"]
-        else:
-            outcomes_ah = [f"เหย้าต่อ (Home -{ah_magnitude})", f"เยือนรอง (Away +{ah_magnitude})"]
-        df_ah = pd.DataFrame({
-            "ฝั่งแฮนดิแคป": outcomes_ah,
-            "ราคาสูตรคำนวณ (Decimal)": input_ah,
-            "โอกาสจริง (Basic)": [f"{p*100:.2f}%" for p in p_ah_basic],
-            "ราคายุติธรรม (Basic)": [f"{1.0/p:.3f}" if p > 0 else "N/A" for p in p_ah_basic],
-            "โอกาสจริง (WPO)": [f"{p*100:.2f}%" for p in p_ah_wpo],
-            "ราคายุติธรรม (WPO)": [f"{1.0/p:.3f}" if p > 0 else "N/A" for p in p_ah_wpo],
-        })
-        st.table(df_ah)
-
+        render_market_card(f"ตลาด AH (เส้น {ah_line})", margin_ah, outcomes_ah,
+                           input_ah, p_ah_wpo, p_ah_basic)
     with out_col3:
-        st.markdown(f"#### ผลลัพธ์ตลาด สูง/ต่ำ (เกณฑ์ประตู: {ou_line})")
-        st.metric("ค่าน้ำตลาด สูง/ต่ำ (Overround)", f"{margin_ou:.2f}%")
-        outcomes_ou = ["สูง (Over)", "ต่ำ (Under)"]
-        df_ou = pd.DataFrame({
-            "ฝั่งสกอร์รวม": outcomes_ou,
-            "ราคาสูตรคำนวณ (Decimal)": input_ou,
-            "โอกาสจริง (Basic)": [f"{p*100:.2f}%" for p in p_ou_basic],
-            "ราคายุติธรรม (Basic)": [f"{1.0/p:.3f}" if p > 0 else "N/A" for p in p_ou_basic],
-            "โอกาสจริง (WPO)": [f"{p*100:.2f}%" for p in p_ou_wpo],
-            "ราคายุติธรรม (WPO)": [f"{1.0/p:.3f}" if p > 0 else "N/A" for p in p_ou_wpo],
-        })
-        st.table(df_ou)
+        render_market_card(f"ตลาด สูง/ต่ำ (เส้น {ou_line})", margin_ou, outcomes_ou,
+                           input_ou, p_ou_wpo, p_ou_basic)
 
-    st.info("💡 **คำแนะนำ:** หากต้องการหาช่องว่างของราคา (Value Bet) ให้ใช้ราคายุติธรรมจากวิธี **WPO** เป็นเกณฑ์เปรียบเทียบ เพราะลบค่าความเบี่ยงเบนของเจ้ามือ (Favorite-Longshot Bias) ได้แม่นยำที่สุด")
+    # ---------------- เครื่องมือเช็ก Value Bet ----------------
+    st.write("---")
+    st.subheader("🔎 เครื่องมือเช็ก Value Bet")
+    st.caption("เลือกฝั่งที่สนใจ แล้วใส่ราคาที่คุณหาได้จากเจ้าอื่น ระบบจะเทียบกับราคายุติธรรม (WPO) ว่าคุ้มหรือไม่")
+
+    # รวมทุกฝั่งจากทุกตลาด พร้อมราคายุติธรรม WPO
+    side_fair = {}
+    for lab, p in zip(outcomes_1x2, p_1x2_wpo):
+        if p > 0:
+            side_fair[f"[1X2] {lab}"] = 1.0 / p
+    for lab, p in zip(outcomes_ah, p_ah_wpo):
+        if p > 0:
+            side_fair[f"[AH] {lab}"] = 1.0 / p
+    for lab, p in zip(outcomes_ou, p_ou_wpo):
+        if p > 0:
+            side_fair[f"[O/U] {lab}"] = 1.0 / p
+
+    vc1, vc2, vc3 = st.columns([3, 2, 4])
+    with vc1:
+        chosen_side = st.selectbox("เลือกฝั่งที่จะแทง", list(side_fair.keys()))
+    with vc2:
+        my_odds = st.number_input("ราคาที่หาได้ (Decimal)", min_value=1.01, value=2.00, step=0.01)
+    with vc3:
+        fair_odds = side_fair[chosen_side]
+        edge = (my_odds / fair_odds - 1.0) * 100  # ความได้เปรียบเชิงคาดหวัง (EV %)
+        st.write("")  # จัดแนวให้สวยงาม
+        if my_odds > fair_odds:
+            st.success(f"✅ มีค่า (Value)! ราคาที่ได้ {my_odds:.2f} > ยุติธรรม {fair_odds:.2f} · ความได้เปรียบ +{edge:.2f}%")
+        elif abs(my_odds - fair_odds) < 1e-9:
+            st.info(f"➖ พอดีราคายุติธรรม ({fair_odds:.2f}) ไม่ได้เปรียบไม่เสียเปรียบ")
+        else:
+            st.error(f"❌ ไม่คุ้ม ราคาที่ได้ {my_odds:.2f} < ยุติธรรม {fair_odds:.2f} · {edge:.2f}%")
+
+    st.info("💡 **คำแนะนำ:** ใช้ราคายุติธรรมจากวิธี **WPO** เป็นเกณฑ์ เพราะลบค่าความเบี่ยงเบนของเจ้ามือ (Favorite-Longshot Bias) ได้แม่นยำที่สุด · ค่าน้ำ (Overround) ยิ่งต่ำ ราคายิ่งจริง — AH และ สูง/ต่ำ จึงน่าเชื่อถือกว่า 1X2")
 
 
 # --- แท็บที่ 2: แบบจำลองสถิติทำนายประตู ---
