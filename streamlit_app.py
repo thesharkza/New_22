@@ -122,6 +122,31 @@ def parse_raw_match_data(text):
     return parsed
 
 
+def interpret_ah_line(line_str):
+    """
+    แปลความเส้นแต้มต่อ Asian Handicap ตามเครื่องหมาย
+    - มี '-' นำหน้า  -> ทีมเยือนเป็นฝ่ายต่อ (Away favorite)
+    - ไม่มี '-'      -> ทีมเหย้าเป็นฝ่ายต่อ (Home favorite)
+    คืนค่า: (favorite, magnitude_str, description)
+        favorite = "home" หรือ "away"
+        magnitude_str = ค่าตัวเลขเส้น (ตัดเครื่องหมายออก) เช่น "1.5", "0/0.5"
+        description = ข้อความอธิบายภาษาไทย
+    """
+    s = (line_str or "").strip()
+    is_away_fav = s.startswith("-")
+    magnitude = s.lstrip("+-").strip()
+    if magnitude == "":
+        magnitude = "0"
+
+    if is_away_fav:
+        favorite = "away"
+        description = f"🔴 ทีมเยือนเป็นฝ่ายต่อ {magnitude} ลูก (เหย้าเป็นรอง)"
+    else:
+        favorite = "home"
+        description = f"🔵 ทีมเหย้าเป็นฝ่ายต่อ {magnitude} ลูก (เยือนเป็นรอง)"
+    return favorite, magnitude, description
+
+
 # =====================================================================
 # 2. แบบจำลองสถิติเชิงปริมาณการทำประตู (Poisson & Dixon-Coles)
 # =====================================================================
@@ -288,9 +313,15 @@ with tab1:
     # 2. ตลาด Asian Handicap
     with col2:
         st.subheader("2. ตลาด Asian Handicap")
-        ah_line = st.text_input("แต้มต่อ (AH Line)", key="ah_line")
-        h_ah_raw = st.number_input("เหย้าต่อ (Home AH Odds)", min_value=0.01, step=0.01, key="h_ah_raw")
-        a_ah_raw = st.number_input("เยือนรอง (Away AH Odds)", min_value=0.01, step=0.01, key="a_ah_raw")
+        ah_line = st.text_input("แต้มต่อ (AH Line)", key="ah_line",
+                                help="ใส่ '-' นำหน้าถ้าทีมเยือนเป็นฝ่ายต่อ เช่น -1.5 / ไม่ใส่ถ้าเหย้าต่อ เช่น 1.5")
+
+        # แปลความเส้นแต้มต่อตามเครื่องหมาย (- = เยือนต่อ, ไม่มี = เหย้าต่อ)
+        ah_favorite, ah_magnitude, ah_desc = interpret_ah_line(ah_line)
+        st.caption(ah_desc)
+
+        h_ah_raw = st.number_input("เหย้า (Home AH Odds)", min_value=0.01, step=0.01, key="h_ah_raw")
+        a_ah_raw = st.number_input("เยือน (Away AH Odds)", min_value=0.01, step=0.01, key="a_ah_raw")
 
         if odds_format.startswith("ราคาฮ่องกง"):
             h_ah = h_ah_raw + 1.0
@@ -350,7 +381,11 @@ with tab1:
     with out_col2:
         st.markdown(f"#### ผลลัพธ์ตลาด AH (ราคาแฮนดิแคป: {ah_line})")
         st.metric("ค่าน้ำตลาด AH (Overround)", f"{margin_ah:.2f}%")
-        outcomes_ah = ["เหย้าต่อ (Home AH)", "เยือนรอง (Away AH)"]
+        # ป้ายฝั่งแฮนดิแคปเปลี่ยนตามว่าทีมใดเป็นฝ่ายต่อ
+        if ah_favorite == "away":
+            outcomes_ah = [f"เหย้ารอง (Home +{ah_magnitude})", f"เยือนต่อ (Away -{ah_magnitude})"]
+        else:
+            outcomes_ah = [f"เหย้าต่อ (Home -{ah_magnitude})", f"เยือนรอง (Away +{ah_magnitude})"]
         df_ah = pd.DataFrame({
             "ฝั่งแฮนดิแคป": outcomes_ah,
             "ราคาสูตรคำนวณ (Decimal)": input_ah,
