@@ -243,6 +243,105 @@ def calculate_match_odds(lambda_h, lambda_a, rho=0.0, max_goals=10):
     return home_win, draw, away_win
 
 
+def line_to_float(s):
+    """แปลงสตริงเส้น เช่น '3/3.5', '-1.5', '0/0.5' เป็นตัวเลข (ค่าเฉลี่ยถ้าเป็นเส้นครึ่ง)"""
+    s = str(s).strip().lstrip('+')
+    neg = s.startswith('-')
+    s = s.lstrip('-')
+    try:
+        if '/' in s:
+            a, b = s.split('/')
+            val = (float(a) + float(b)) / 2.0
+        else:
+            val = float(s) if s else 0.0
+    except ValueError:
+        val = 0.0
+    return -val if neg else val
+
+
+def model_full(lh, la, threshold, hcap_home, rho=0.0, mg=10):
+    """
+    คำนวณจากโมเดล Poisson/Dixon-Coles ในรอบเดียว คืนค่า:
+    (home_win, draw, away_win, over_prob, ah_home_cover_prob)
+    - threshold: เส้นสูง/ต่ำ (ตัวเลข)
+    - hcap_home: แต้มต่อจากมุมเจ้าบ้าน (ติดลบ = เหย้าต่อ, บวก = เหย้ารับแต้ม)
+    """
+    px = [poisson_pmf(i, lh) for i in range(mg + 1)]
+    py = [poisson_pmf(j, la) for j in range(mg + 1)]
+    mat = [[px[i] * py[j] * d_coles_tau(i, j, lh, la, rho) for j in range(mg + 1)] for i in range(mg + 1)]
+    tot = sum(sum(r) for r in mat)
+    if tot <= 0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+
+    hw = dr = aw = ov = 0.0
+    margin = {}
+    for i in range(mg + 1):
+        for j in range(mg + 1):
+            p = mat[i][j] / tot
+            if i > j:
+                hw += p
+            elif i == j:
+                dr += p
+            else:
+                aw += p
+            if (i + j) > threshold:
+                ov += p
+            m = i - j
+            margin[m] = margin.get(m, 0.0) + p
+
+    def single(sub):
+        w = pu = 0.0
+        for m, p in margin.items():
+            adj = m + sub
+            if adj > 0:
+                w += p
+            elif abs(adj) < 1e-9:
+                pu += p
+        return w + 0.5 * pu  # คืนเงินครึ่งเสมอ ถือเป็นกลาง
+
+    frac = round(hcap_home - math.floor(hcap_home), 2)
+    if abs(frac - 0.25) < 1e-6 or abs(frac - 0.75) < 1e-6:
+        home_cover = 0.5 * single(hcap_home - 0.25) + 0.5 * single(hcap_home + 0.25)
+    else:
+        home_cover = single(hcap_home)
+
+    return hw, dr, aw, ov, home_cover
+
+
+def implied_xg_from_market(home_p, draw_p, away_p, over_p, threshold, rho=0.0):
+    """
+    ถอดค่า xG (lambda เหย้า/เยือน) จากความน่าจะเป็นในตลาด
+    โดยหาคู่ lambda ที่ทำให้โมเดลตรงกับ 1X2 + สูง/ต่ำ มากที่สุด (grid + fine search)
+    """
+    def err_at(lh, la):
+        hw, dr, aw, ov, _ = model_full(lh, la, threshold, 0.0, rho=rho, mg=8)
+        return (hw - home_p) ** 2 + (dr - draw_p) ** 2 + (aw - away_p) ** 2 + (ov - over_p) ** 2
+
+    best = (1.3, 1.1)
+    best_err = 1e9
+    coarse = [x / 20.0 for x in range(2, 71)]  # 0.10 - 3.50 step 0.05
+    for lh in coarse:
+        for la in coarse:
+            e = err_at(lh, la)
+            if e < best_err:
+                best_err = e
+                best = (lh, la)
+
+    # ค้นละเอียดรอบจุดที่ดีที่สุด
+    lh0, la0 = best
+    fine = [-0.04, -0.02, 0.0, 0.02, 0.04]
+    for dh in fine:
+        for da in fine:
+            lh, la = lh0 + dh, la0 + da
+            if 0.05 < lh < 5 and 0.05 < la < 5:
+                e = err_at(lh, la)
+                if e < best_err:
+                    best_err = e
+                    best = (lh, la)
+
+    return best, best_err
+
+
 # =====================================================================
 # 3. หน้าจอการกรอกข้อมูลและโต้ตอบ
 # =====================================================================
@@ -457,17 +556,36 @@ with tab1:
 
 # --- แท็บที่ 2: แบบจำลองสถิติทำนายประตู ---
 with tab2:
+    # ค่าเริ่มต้นสไลเดอร์ (ใช้ key เพื่อให้ปุ่มถอด xG เขียนค่าได้)
+    for k, v in {"lambda_h": 1.6, "lambda_a": 1.2, "rho_val": -0.11}.items():
+        st.session_state.setdefault(k, v)
+
     st.header("แบบจำลองพยากรณ์ความน่าจะเป็นจากการยิงประตูเฉลี่ย")
-    st.write("ระบุระดับฟอร์มการเล่นของทีม (Expected Goals - xG) เพื่อเปรียบเทียบผลลัพธ์แบบ Poisson กับ Dixon-Coles")
+    st.write("ระบุระดับฟอร์มการเล่นของทีม (Expected Goals - xG) หรือกดถอดค่าจากราคาในแท็บ 1 อัตโนมัติ")
+
+    # ---------- ฟีเจอร์ 1: ถอดค่า xG จากราคาอัตโนมัติ ----------
+    if st.button("🔄 ถอดค่า xG จากราคาในแท็บ 1 อัตโนมัติ"):
+        if (p_1x2_wpo and len(p_1x2_wpo) == 3 and p_ou_wpo and len(p_ou_wpo) == 2):
+            threshold = line_to_float(ou_line)
+            with st.spinner("กำลังคำนวณค่า xG ที่ตรงกับราคา..."):
+                (lh, la), fit_err = implied_xg_from_market(
+                    p_1x2_wpo[0], p_1x2_wpo[1], p_1x2_wpo[2],
+                    p_ou_wpo[0], threshold, rho=st.session_state["rho_val"],
+                )
+            st.session_state["lambda_h"] = round(lh, 1)
+            st.session_state["lambda_a"] = round(la, 1)
+            st.success(f"ถอดค่าสำเร็จ → เหย้า xG ≈ {lh:.2f}, เยือน xG ≈ {la:.2f} (ค่าคลาดเคลื่อน {fit_err:.5f})")
+        else:
+            st.warning("กรุณากรอกราคาในแท็บ 1 (1X2 และ สูง/ต่ำ) ให้ครบก่อน")
 
     col1, col2 = st.columns(2)
     with col1:
-        lambda_h = st.slider("ระดับฟอร์มเกมรุกเจ้าบ้าน (Home xG)", min_value=0.0, max_value=5.0, value=1.6, step=0.1)
-        lambda_a = st.slider("ระดับฟอร์มเกมรุกทีมเยือน (Away xG)", min_value=0.0, max_value=5.0, value=1.2, step=0.1)
-        rho_val = st.slider("ค่าสหสัมพันธ์ประตูน้อย Dixon-Coles (rho)", min_value=-0.30, max_value=0.0, value=-0.11, step=0.01)
+        lambda_h = st.slider("ระดับฟอร์มเกมรุกเจ้าบ้าน (Home xG)", min_value=0.0, max_value=5.0, step=0.1, key="lambda_h")
+        lambda_a = st.slider("ระดับฟอร์มเกมรุกทีมเยือน (Away xG)", min_value=0.0, max_value=5.0, step=0.1, key="lambda_a")
+        rho_val = st.slider("ค่าสหสัมพันธ์ประตูน้อย Dixon-Coles (rho)", min_value=-0.30, max_value=0.0, step=0.01, key="rho_val")
 
     with col2:
-        st.subheader("เปรียบเทียบสถิติความน่าจะเป็นของการชนะ เสมอ แพ้")
+        st.subheader("เปรียบเทียบความน่าจะเป็น ชนะ/เสมอ/แพ้")
         p_hw, p_dr, p_aw = calculate_match_odds(lambda_h, lambda_a, rho=0.0)
         dc_hw, dc_dr, dc_aw = calculate_match_odds(lambda_h, lambda_a, rho=rho_val)
         prediction_results = {
@@ -477,7 +595,69 @@ with tab2:
             "โอกาสทีมเยือนชนะ": [f"{p_aw*100:.2f}%", f"{dc_aw*100:.2f}%"],
         }
         st.table(prediction_results)
-        st.write("📊 **วิเคราะห์เชิงสถิติ:** แบบจำลอง Dixon-Coles ใช้พารามิเตอร์สหสัมพันธ์ $\\rho$ ชดเชยให้สถานการณ์ประตูรวมต่ำ ซึ่งเป็นจุดที่ Poisson ทั่วไปมักมองข้ามโอกาสเสมอ")
+        st.caption("Dixon-Coles ใช้ค่า rho ชดเชยสถานการณ์ประตูรวมต่ำ ซึ่ง Poisson ทั่วไปมักมองข้าม")
+
+    # ---------- ฟีเจอร์ 2: สแกนหา Value อัตโนมัติ ----------
+    st.write("---")
+    st.subheader("🤖 สแกนหา Value อัตโนมัติ (โมเดล vs ราคาเจ้ามือ)")
+    st.caption("เทียบความน่าจะเป็นจากโมเดล Dixon-Coles กับราคาที่ถอดค่าน้ำแล้ว (WPO) ทุกฝั่ง แล้วชี้จุดที่โมเดลมองว่าราคาเจ้ามือ 'ใจดีเกินจริง' = อาจมี Value")
+
+    threshold = line_to_float(ou_line)
+    fav, mag_str, _ = interpret_ah_line(ah_line)
+    mag = line_to_float(mag_str)
+    hcap_home = -mag if fav == "home" else mag
+    m_hw, m_dr, m_aw, m_ov, m_ah_home = model_full(lambda_h, lambda_a, threshold, hcap_home, rho=rho_val)
+    m_ah_away = 1.0 - m_ah_home
+    m_un = 1.0 - m_ov
+
+    # ป้ายและคู่ (โอกาสโมเดล, โอกาสตลาด WPO, ราคาเจ้ามือเปิด)
+    scan_rows = []
+    def add_row(name, model_p, market_p, offered):
+        if model_p <= 0 or market_p <= 0:
+            return
+        edge = (model_p * offered - 1.0) * 100  # EV% ถ้าแทงที่ราคาเจ้ามือเปิด
+        scan_rows.append({
+            "ฝั่ง": name,
+            "โอกาสโมเดล": model_p,
+            "โอกาสตลาด": market_p,
+            "ส่วนต่าง": (model_p - market_p) * 100,
+            "ราคาเปิด": offered,
+            "EV%": edge,
+        })
+
+    add_row("[1X2] เหย้า", m_hw, p_1x2_wpo[0], input_1x2[0])
+    add_row("[1X2] เสมอ", m_dr, p_1x2_wpo[1], input_1x2[1])
+    add_row("[1X2] เยือน", m_aw, p_1x2_wpo[2], input_1x2[2])
+    if fav == "home":
+        add_row(f"[AH] เหย้าต่อ (-{mag_str})", m_ah_home, p_ah_wpo[0], input_ah[0])
+        add_row(f"[AH] เยือนรอง (+{mag_str})", m_ah_away, p_ah_wpo[1], input_ah[1])
+    else:
+        add_row(f"[AH] เหย้ารอง (+{mag_str})", m_ah_home, p_ah_wpo[0], input_ah[0])
+        add_row(f"[AH] เยือนต่อ (-{mag_str})", m_ah_away, p_ah_wpo[1], input_ah[1])
+    add_row("[O/U] สูง", m_ov, p_ou_wpo[0], input_ou[0])
+    add_row("[O/U] ต่ำ", m_un, p_ou_wpo[1], input_ou[1])
+
+    if scan_rows:
+        scan_rows.sort(key=lambda r: r["EV%"], reverse=True)
+        best = scan_rows[0]
+        if best["EV%"] > 0:
+            st.success(
+                f"🎯 จุดที่น่าสนใจสุด: **{best['ฝั่ง']}** — โมเดลให้โอกาส {best['โอกาสโมเดล']*100:.1f}% "
+                f"แต่ตลาดให้แค่ {best['โอกาสตลาด']*100:.1f}% · ราคาเปิด {best['ราคาเปิด']:.2f} · EV +{best['EV%']:.2f}%"
+            )
+        else:
+            st.info("ไม่พบฝั่งที่โมเดลมองว่าได้เปรียบ — ราคาเจ้ามือสอดคล้องกับโมเดลแล้ว")
+
+        df_scan = pd.DataFrame([{
+            "ฝั่ง": r["ฝั่ง"],
+            "โอกาสโมเดล": f"{r['โอกาสโมเดล']*100:.1f}%",
+            "โอกาสตลาด": f"{r['โอกาสตลาด']*100:.1f}%",
+            "ส่วนต่าง": f"{r['ส่วนต่าง']:+.1f}%",
+            "ราคาเปิด": f"{r['ราคาเปิด']:.2f}",
+            "EV%": f"{r['EV%']:+.2f}%",
+        } for r in scan_rows])
+        st.table(df_scan)
+        st.caption("⚠️ EV% บวก = โมเดลมองว่าคุ้ม แต่ขึ้นกับว่าค่า xG ที่ใช้แม่นแค่ไหน (แนะนำกดถอด xG จากราคาก่อน) ไม่ใช่การการันตีกำไร")
 
 
 # --- แท็บที่ 3: ระบบตรวจรับตั๋วแบบหน่วงเวลา ---
