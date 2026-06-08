@@ -40,11 +40,21 @@ def inject_theme():
                 var(--bg);
         }
         [data-testid="stHeader"] { background: transparent; }
-        [data-testid="stAppViewContainer"], [data-testid="stAppViewContainer"] p,
-        [data-testid="stAppViewContainer"] li, [data-testid="stAppViewContainer"] span,
-        [data-testid="stAppViewContainer"] label, [data-testid="stAppViewContainer"] div {
+        [data-testid="stAppViewContainer"] {
             font-family: 'IBM Plex Sans Thai', sans-serif;
             color: var(--txt);
+        }
+        [data-testid="stAppViewContainer"] p,
+        [data-testid="stAppViewContainer"] li,
+        [data-testid="stAppViewContainer"] label {
+            font-family: 'IBM Plex Sans Thai', sans-serif;
+            color: var(--txt);
+        }
+        /* คืนฟอนต์ไอคอนของ Streamlit เพื่อไม่ให้โชว์ชื่อไอคอนเป็นตัวอักษร */
+        [data-testid="stIconMaterial"],
+        span[class*="material-icons"],
+        span[class*="material-symbols"] {
+            font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', 'Material Icons' !important;
         }
 
         h1, h2, h3, h4 { font-family: 'Kanit', sans-serif !important; letter-spacing: .2px; color: var(--txt) !important; }
@@ -1039,4 +1049,3 @@ with tab4:
             "- เป้าหมายระยะยาว: ให้ **CLV เฉลี่ยเป็นบวก** และสัดส่วนตั๋วที่ชนะราคาปิด > 50% สม่ำเสมอ\n"
             "- ข้อควรจำ: CLV วัดว่า *กระบวนการ* ดีไหม ไม่ได้แปลว่าตั๋วนั้นถูกเสมอ และไม่การันตีกำไร"
         )
-
