@@ -6,7 +6,136 @@ import random
 import re
 
 # ตั้งค่าการแสดงผลหน้าเว็บแบบกว้าง (Wide Layout)
-st.set_page_config(page_title="โปรแกรมวิเคราะห์ค่าน้ำและคำนวณราคาบอล", layout="wide")
+st.set_page_config(
+    page_title="Gold Odds Engine — วิเคราะห์ราคาบอล",
+    page_icon="⚜️",
+    layout="wide",
+)
+
+
+def inject_theme():
+    """ฉีด CSS ธีมดำ-ทอง (Black & Gold) แนว luxury ให้ทั้งแอป"""
+    st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Chonburi&family=Kanit:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@300;400;500;600&display=swap');
+
+        :root {
+            --bg:       #0B0B0D;
+            --bg-2:     #131317;
+            --bg-3:     #1B1B21;
+            --gold:     #D4AF37;
+            --gold-2:   #E8C766;
+            --gold-dim: #6E5C1E;
+            --txt:      #ECECEC;
+            --txt-dim:  #9A968B;
+            --line:     rgba(212,175,55,0.16);
+        }
+
+        /* พื้นหลังแบบมีมิติ ไม่ใช่สีทึบล้วน */
+        [data-testid="stAppViewContainer"] {
+            background:
+                radial-gradient(1200px 600px at 80% -10%, rgba(212,175,55,0.08), transparent 60%),
+                radial-gradient(900px 500px at -10% 110%, rgba(212,175,55,0.05), transparent 55%),
+                var(--bg);
+        }
+        [data-testid="stHeader"] { background: transparent; }
+        [data-testid="stAppViewContainer"], [data-testid="stAppViewContainer"] p,
+        [data-testid="stAppViewContainer"] li, [data-testid="stAppViewContainer"] span,
+        [data-testid="stAppViewContainer"] label, [data-testid="stAppViewContainer"] div {
+            font-family: 'IBM Plex Sans Thai', sans-serif;
+            color: var(--txt);
+        }
+
+        h1, h2, h3, h4 { font-family: 'Kanit', sans-serif !important; letter-spacing: .2px; color: var(--txt) !important; }
+        h2, h3 { border-left: 3px solid var(--gold); padding-left: 12px; }
+
+        /* แบนเนอร์หัวเว็บ */
+        .gold-hero {
+            margin: -8px 0 6px 0; padding: 26px 30px;
+            border: 1px solid var(--line); border-radius: 18px;
+            background: linear-gradient(135deg, rgba(212,175,55,0.10), rgba(212,175,55,0.02) 45%, transparent),
+                        var(--bg-2);
+            box-shadow: 0 18px 50px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.03);
+            position: relative; overflow: hidden;
+        }
+        .gold-hero::after {
+            content: ""; position: absolute; right: -40px; top: -40px;
+            width: 220px; height: 220px; border-radius: 50%;
+            background: radial-gradient(circle, rgba(212,175,55,0.18), transparent 65%);
+        }
+        .gold-hero h1 {
+            font-family: 'Chonburi', 'Kanit', serif !important;
+            font-size: 2.15rem; line-height: 1.2; margin: 0 0 6px 0;
+            background: linear-gradient(92deg, var(--gold-2), var(--gold) 50%, #B8902A);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+        }
+        .gold-hero p { color: var(--txt-dim) !important; margin: 0; font-size: .96rem; }
+        .gold-chip {
+            display:inline-block; margin-top:12px; padding:4px 12px; border-radius:999px;
+            font-size:.74rem; letter-spacing:1.5px; text-transform:uppercase;
+            color: var(--gold-2); border:1px solid var(--line); background: rgba(212,175,55,0.06);
+        }
+
+        /* แท็บ */
+        .stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid var(--line); }
+        .stTabs [data-baseweb="tab"] {
+            background: transparent; color: var(--txt-dim);
+            font-family: 'Kanit', sans-serif; font-weight: 500; padding: 8px 16px;
+        }
+        .stTabs [aria-selected="true"] { color: var(--gold-2) !important; }
+        .stTabs [data-baseweb="tab-highlight"] { background: var(--gold) !important; height: 3px; }
+
+        /* การ์ด metric */
+        [data-testid="stMetric"] {
+            background: var(--bg-3); border: 1px solid var(--line);
+            border-radius: 14px; padding: 14px 16px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+        }
+        [data-testid="stMetricValue"] { color: var(--gold-2); font-family: 'Kanit', sans-serif; }
+        [data-testid="stMetricLabel"] p { color: var(--txt-dim) !important; }
+
+        /* ปุ่ม */
+        .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
+            background: linear-gradient(135deg, var(--gold-2), var(--gold) 55%, #B8902A);
+            color: #14110A !important; font-family:'Kanit',sans-serif; font-weight: 600;
+            border: 0; border-radius: 10px; padding: 8px 18px;
+            box-shadow: 0 6px 18px rgba(212,175,55,0.22); transition: transform .12s ease, box-shadow .12s ease;
+        }
+        .stButton > button:hover, .stDownloadButton > button:hover, .stFormSubmitButton > button:hover {
+            transform: translateY(-1px); box-shadow: 0 10px 26px rgba(212,175,55,0.34);
+        }
+
+        /* อินพุต */
+        [data-testid="stTextInput"] input, [data-testid="stNumberInput"] input,
+        [data-baseweb="select"] > div, [data-testid="stTextArea"] textarea {
+            background: var(--bg-3) !important; border: 1px solid var(--line) !important;
+            color: var(--txt) !important; border-radius: 10px !important;
+        }
+
+        /* sidebar */
+        [data-testid="stSidebar"] { background: var(--bg-2); border-right: 1px solid var(--line); }
+
+        /* ตาราง / dataframe */
+        [data-testid="stTable"] table, [data-testid="stDataFrame"] { border-radius: 12px; overflow: hidden; }
+        [data-testid="stTable"] thead th {
+            background: rgba(212,175,55,0.10) !important; color: var(--gold-2) !important;
+            font-family:'Kanit',sans-serif; border-bottom: 1px solid var(--line) !important;
+        }
+        [data-testid="stTable"] tbody td { border-color: rgba(255,255,255,0.05) !important; }
+
+        /* progress / expander / alerts */
+        .stProgress > div > div > div > div { background: linear-gradient(90deg, var(--gold), var(--gold-2)); }
+        [data-testid="stExpander"] { border: 1px solid var(--line); border-radius: 12px; background: var(--bg-2); }
+        [data-testid="stExpander"] summary { font-family:'Kanit',sans-serif; }
+        hr { border-color: var(--line); }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+inject_theme()
 
 # =====================================================================
 # 1. ฟังก์ชันคำนวณสถิติและถอดค่าน้ำ (De-vigging Mathematical Engine)
@@ -346,8 +475,16 @@ def implied_xg_from_market(home_p, draw_p, away_p, over_p, threshold, rho=0.0):
 # 3. หน้าจอการกรอกข้อมูลและโต้ตอบ
 # =====================================================================
 
-st.title("⚽ Football Betting Math Engine (โปรแกรมคำนวณราคาบอล)")
-st.write("ระบบคำนวณส่วนต่างค่าน้ำ (Overround) และสกัดหาความน่าจะเป็นที่แท้จริงจากอัตราต่อรองของเจ้ามือ")
+st.markdown(
+    """
+    <div class="gold-hero">
+        <h1>⚜️ Gold Odds Engine</h1>
+        <p>โปรแกรมวิเคราะห์ค่าน้ำ ถอดความน่าจะเป็นที่แท้จริง และหาช่องว่างราคา (Value Bet) จากอัตราต่อรองของเจ้ามือ</p>
+        <span class="gold-chip">De-vig · Dixon-Coles · CLV Tracker</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ส่วนจัดการไฟล์ Excel
 st.sidebar.header("📁 ส่วนจัดการไฟล์ข้อมูล (Excel)")
@@ -902,3 +1039,4 @@ with tab4:
             "- เป้าหมายระยะยาว: ให้ **CLV เฉลี่ยเป็นบวก** และสัดส่วนตั๋วที่ชนะราคาปิด > 50% สม่ำเสมอ\n"
             "- ข้อควรจำ: CLV วัดว่า *กระบวนการ* ดีไหม ไม่ได้แปลว่าตั๋วนั้นถูกเสมอ และไม่การันตีกำไร"
         )
+
