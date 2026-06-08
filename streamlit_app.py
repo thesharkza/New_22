@@ -175,6 +175,34 @@ def inject_theme():
             box-shadow: 0 0 14px rgba(212,175,55,0.45);
         }
         .mkt-row.is-best .mkt-name { color:var(--gold-2); font-weight:600; }
+
+        /* การ์ด verdict ของเครื่องมือเช็ก Value Bet */
+        .vb-card {
+            border:1px solid var(--line); border-radius:18px; padding:22px 24px; margin-top:8px;
+            background: var(--bg-2); box-shadow:0 12px 34px rgba(0,0,0,0.45); text-align:center;
+        }
+        .vb-card.vb-value {
+            border-color: rgba(212,175,55,0.5);
+            background: linear-gradient(180deg, rgba(212,175,55,0.09), transparent 55%), var(--bg-2);
+            box-shadow: 0 0 0 1px rgba(212,175,55,0.22), 0 16px 44px rgba(0,0,0,0.55);
+        }
+        .vb-card.vb-novalue { border-color: rgba(224,122,107,0.32); }
+        .vb-side { font-family:'Kanit',sans-serif; font-weight:600; color:var(--gold-2); font-size:1.05rem; letter-spacing:.3px; margin-bottom:16px; }
+        .vb-compare { display:flex; align-items:center; justify-content:center; gap:30px; margin-bottom:18px; flex-wrap:wrap; }
+        .vb-num { display:flex; flex-direction:column; align-items:center; gap:5px; }
+        .vb-lbl { font-size:.7rem; color:var(--txt-dim); text-transform:uppercase; letter-spacing:1.2px; }
+        .vb-fair { font-family:'Kanit',sans-serif; font-weight:600; font-size:1.8rem; color:var(--txt); line-height:1; }
+        .vb-yours { font-family:'Kanit',sans-serif; font-weight:600; font-size:1.8rem; color:var(--gold-2); line-height:1; }
+        .vb-arrow { font-size:1.6rem; color:var(--gold); opacity:.55; }
+        .vb-verdict { display:flex; align-items:center; justify-content:center; gap:16px; flex-wrap:wrap; }
+        .vb-pill { padding:7px 20px; border-radius:999px; font-family:'Kanit',sans-serif; font-weight:600; font-size:.95rem; }
+        .vb-value .vb-pill { background:linear-gradient(135deg,var(--gold-2),var(--gold)); color:#14110A; box-shadow:0 6px 18px rgba(212,175,55,0.3); }
+        .vb-novalue .vb-pill { background:rgba(224,122,107,0.14); color:#E89A8E; border:1px solid rgba(224,122,107,0.4); }
+        .vb-neutral .vb-pill { background:rgba(255,255,255,0.06); color:var(--txt-dim); border:1px solid var(--line); }
+        .vb-edge { font-family:'Kanit',sans-serif; font-weight:600; font-size:1.2rem; }
+        .vb-value .vb-edge { color:#6BD89A; }
+        .vb-novalue .vb-edge { color:#E07A6B; }
+        .vb-neutral .vb-edge { color:var(--txt-dim); }
         </style>
         """,
         unsafe_allow_html=True,
@@ -738,21 +766,34 @@ with tab1:
         if p > 0:
             side_fair[f"[O/U] {lab}"] = 1.0 / p
 
-    vc1, vc2, vc3 = st.columns([3, 2, 4])
+    vc1, vc2 = st.columns([3, 2])
     with vc1:
         chosen_side = st.selectbox("เลือกฝั่งที่จะแทง", list(side_fair.keys()))
     with vc2:
         my_odds = st.number_input("ราคาที่หาได้ (Decimal)", min_value=1.01, value=2.00, step=0.01)
-    with vc3:
-        fair_odds = side_fair[chosen_side]
-        edge = (my_odds / fair_odds - 1.0) * 100  # ความได้เปรียบเชิงคาดหวัง (EV %)
-        st.write("")  # จัดแนวให้สวยงาม
-        if my_odds > fair_odds:
-            st.success(f"✅ มีค่า (Value)! ราคาที่ได้ {my_odds:.2f} > ยุติธรรม {fair_odds:.2f} · ความได้เปรียบ +{edge:.2f}%")
-        elif abs(my_odds - fair_odds) < 1e-9:
-            st.info(f"➖ พอดีราคายุติธรรม ({fair_odds:.2f}) ไม่ได้เปรียบไม่เสียเปรียบ")
-        else:
-            st.error(f"❌ ไม่คุ้ม ราคาที่ได้ {my_odds:.2f} < ยุติธรรม {fair_odds:.2f} · {edge:.2f}%")
+
+    fair_odds = side_fair[chosen_side]
+    edge = (my_odds / fair_odds - 1.0) * 100  # ความได้เปรียบเชิงคาดหวัง (EV %)
+    if my_odds > fair_odds:
+        vb_cls, vb_pill, vb_edge = "vb-value", "✅ VALUE", f"EV +{edge:.2f}%"
+    elif abs(my_odds - fair_odds) < 1e-9:
+        vb_cls, vb_pill, vb_edge = "vb-neutral", "➖ พอดีราคา", "EV 0.00%"
+    else:
+        vb_cls, vb_pill, vb_edge = "vb-novalue", "❌ NO VALUE", f"EV {edge:.2f}%"
+
+    st.markdown(
+        f'<div class="vb-card {vb_cls}">'
+        f'<div class="vb-side">{chosen_side}</div>'
+        f'<div class="vb-compare">'
+        f'<div class="vb-num"><span class="vb-lbl">ราคายุติธรรม</span><span class="vb-fair">{fair_odds:.2f}</span></div>'
+        f'<div class="vb-arrow">→</div>'
+        f'<div class="vb-num"><span class="vb-lbl">ราคาที่คุณได้</span><span class="vb-yours">{my_odds:.2f}</span></div>'
+        f'</div>'
+        f'<div class="vb-verdict"><span class="vb-pill">{vb_pill}</span>'
+        f'<span class="vb-edge">{vb_edge}</span></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     st.info("💡 **คำแนะนำ:** ใช้ราคายุติธรรมจากวิธี **WPO** เป็นเกณฑ์ เพราะลบค่าความเบี่ยงเบนของเจ้ามือ (Favorite-Longshot Bias) ได้แม่นยำที่สุด · ค่าน้ำ (Overround) ยิ่งต่ำ ราคายิ่งจริง — AH และ สูง/ต่ำ จึงน่าเชื่อถือกว่า 1X2")
 
