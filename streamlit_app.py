@@ -139,6 +139,42 @@ def inject_theme():
         [data-testid="stExpander"] { border: 1px solid var(--line); border-radius: 12px; background: var(--bg-2); }
         [data-testid="stExpander"] summary { font-family:'Kanit',sans-serif; }
         hr { border-color: var(--line); }
+
+        /* การ์ดผลวิเคราะห์ราคายุติธรรม + กราฟแท่งทอง */
+        .mkt-card {
+            background: linear-gradient(180deg, rgba(212,175,55,0.04), transparent 40%), var(--bg-2);
+            border: 1px solid var(--line); border-radius: 16px;
+            padding: 16px 18px 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.42);
+            height: 100%;
+        }
+        .mkt-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+        .mkt-title { font-family:'Kanit',sans-serif; font-weight:600; font-size:1.04rem; color:var(--txt); }
+        .mkt-vig {
+            font-size:.72rem; color:var(--txt-dim); white-space:nowrap;
+            border:1px solid var(--line); padding:3px 10px; border-radius:999px; background:rgba(0,0,0,0.25);
+        }
+        .mkt-pick {
+            font-size:.84rem; color:var(--gold-2); background:rgba(212,175,55,0.07);
+            border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin-bottom:14px;
+        }
+        .mkt-pick b { color:var(--gold-2); }
+        .mkt-row { margin-bottom:13px; }
+        .mkt-row:last-child { margin-bottom:2px; }
+        .mkt-row-top { display:flex; justify-content:space-between; align-items:baseline; font-size:.82rem; margin-bottom:6px; gap:8px; }
+        .mkt-name { color:var(--txt); white-space:nowrap; }
+        .mkt-val { color:var(--txt-dim); text-align:right; }
+        .mkt-val b { color:var(--gold-2); }
+        .mkt-bar { height:9px; background:rgba(255,255,255,0.05); border-radius:999px; overflow:hidden; }
+        .mkt-fill {
+            height:100%; border-radius:999px;
+            background: linear-gradient(90deg, #5C4D1A, var(--gold) 55%, var(--gold-2));
+            transition: width .5s cubic-bezier(.2,.8,.2,1);
+        }
+        .mkt-row.is-best .mkt-fill {
+            background: linear-gradient(90deg, var(--gold), var(--gold-2));
+            box-shadow: 0 0 14px rgba(212,175,55,0.45);
+        }
+        .mkt-row.is-best .mkt-name { color:var(--gold-2); font-weight:600; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -288,29 +324,44 @@ def interpret_ah_line(line_str):
 
 def render_market_card(header, margin, labels, offered, probs_wpo, probs_basic):
     """
-    แสดงผลตลาดหนึ่งตลาดแบบอ่านง่าย:
-    - บรรทัดฟันธงผลที่น่าจะเป็นมากสุด
-    - แถบความน่าจะเป็น (probability bar) ของแต่ละฝั่ง
+    แสดงผลตลาดหนึ่งตลาดเป็นการ์ดกราฟแท่งแนวนอนโทนทอง:
+    - แถบไล่เฉดทองตามความน่าจะเป็น (WPO) ฝั่งที่น่าจะเป็นมากสุดถูกไฮไลต์
     - ตารางละเอียด Basic vs WPO ซ่อนใน expander
     """
-    st.markdown(f"#### {header}")
-    st.metric("ค่าน้ำ (Overround)", f"{margin:.2f}%")
+    best_i = max(range(len(probs_wpo)), key=lambda i: probs_wpo[i]) if probs_wpo else -1
 
-    if probs_wpo:
-        best_i = max(range(len(probs_wpo)), key=lambda i: probs_wpo[i])
-        fair_best = 1.0 / probs_wpo[best_i] if probs_wpo[best_i] > 0 else 0
-        st.success(
-            f"🎯 ฝั่งที่น่าจะเป็น: **{labels[best_i]}**  ·  "
-            f"โอกาส {probs_wpo[best_i]*100:.1f}%  ·  ราคายุติธรรม {fair_best:.2f}"
-        )
-
-    # แถบความน่าจะเป็นของแต่ละฝั่ง (อิงวิธี WPO)
+    rows_html = ""
     for i, lab in enumerate(labels):
         p = probs_wpo[i] if i < len(probs_wpo) else 0.0
         fair = 1.0 / p if p > 0 else 0.0
         op = offered[i] if i < len(offered) else 0.0
-        st.write(f"**{lab}**  ·  โอกาสจริง {p*100:.1f}%  ·  ยุติธรรม {fair:.2f}  ·  เจ้ามือเปิด {op:.2f}")
-        st.progress(min(1.0, max(0.0, p)))
+        width = max(3.0, min(100.0, p * 100))
+        best_cls = " is-best" if i == best_i else ""
+        rows_html += (
+            f'<div class="mkt-row{best_cls}">'
+            f'<div class="mkt-row-top"><span class="mkt-name">{lab}</span>'
+            f'<span class="mkt-val">{p*100:.1f}% · ยุติธรรม <b>{fair:.2f}</b> · เปิด {op:.2f}</span></div>'
+            f'<div class="mkt-bar"><div class="mkt-fill" style="width:{width:.1f}%"></div></div>'
+            f'</div>'
+        )
+
+    pick_html = ""
+    if best_i >= 0:
+        bp = probs_wpo[best_i]
+        bf = 1.0 / bp if bp > 0 else 0.0
+        pick_html = (
+            f'<div class="mkt-pick">🎯 ฝั่งที่น่าจะเป็น: <b>{labels[best_i]}</b>'
+            f' · {bp*100:.1f}% · ยุติธรรม {bf:.2f}</div>'
+        )
+
+    card = (
+        f'<div class="mkt-card">'
+        f'<div class="mkt-head"><span class="mkt-title">{header}</span>'
+        f'<span class="mkt-vig">ค่าน้ำ {margin:.2f}%</span></div>'
+        f'{pick_html}{rows_html}'
+        f'</div>'
+    )
+    st.markdown(card, unsafe_allow_html=True)
 
     with st.expander("📋 ดูตารางละเอียด (Basic vs WPO)"):
         df = pd.DataFrame({
