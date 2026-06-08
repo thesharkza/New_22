@@ -560,6 +560,87 @@ def implied_xg_from_market(home_p, draw_p, away_p, over_p, threshold, rho=0.0):
     return best, best_err
 
 
+def inplay_model(lh_pre, la_pre, minutes, ch, ca, rc_home, rc_away, ou_line, hcap_home, rho=0.0, mg=10):
+    """
+    โมเดลบอลสด: ปรับ xG ตามเวลาที่เหลือ + สกอร์ปัจจุบัน + ใบแดง (ค่าประมาณ)
+    คืนค่า (home_win, draw, away_win, over, ah_home_cover) อิงสกอร์ "สุดท้าย" = ปัจจุบัน + ที่เหลือ
+    """
+    rem = max(0.0, (90.0 - minutes) / 90.0)
+    lh = lh_pre * rem
+    la = la_pre * rem
+    # ใบแดง: ทีมที่โดนยิงได้น้อยลง คู่แข่งยิงได้มากขึ้น (ค่าประมาณ)
+    for _ in range(int(rc_home)):
+        lh *= 0.80
+        la *= 1.20
+    for _ in range(int(rc_away)):
+        la *= 0.80
+        lh *= 1.20
+
+    px = [poisson_pmf(i, lh) for i in range(mg + 1)]
+    py = [poisson_pmf(j, la) for j in range(mg + 1)]
+    mat = [[px[i] * py[j] * d_coles_tau(i, j, lh, la, rho) for j in range(mg + 1)] for i in range(mg + 1)]
+    tot = sum(sum(r) for r in mat)
+    if tot <= 0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+
+    hw = dr = aw = ov = 0.0
+    margin = {}
+    for i in range(mg + 1):
+        for j in range(mg + 1):
+            p = mat[i][j] / tot
+            fh, fa = ch + i, ca + j          # สกอร์สุดท้าย
+            if fh > fa:
+                hw += p
+            elif fh == fa:
+                dr += p
+            else:
+                aw += p
+            if (fh + fa) > ou_line:
+                ov += p
+            m = fh - fa
+            margin[m] = margin.get(m, 0.0) + p
+
+    def single(sub):
+        w = pu = 0.0
+        for m, p in margin.items():
+            adj = m + sub
+            if adj > 0:
+                w += p
+            elif abs(adj) < 1e-9:
+                pu += p
+        return w + 0.5 * pu
+
+    frac = round(hcap_home - math.floor(hcap_home), 2)
+    if abs(frac - 0.25) < 1e-6 or abs(frac - 0.75) < 1e-6:
+        ah_home = 0.5 * single(hcap_home - 0.25) + 0.5 * single(hcap_home + 0.25)
+    else:
+        ah_home = single(hcap_home)
+
+    return hw, dr, aw, ov, ah_home
+
+
+def render_prob_card(header, subtitle, labels, probs):
+    """การ์ดกราฟแท่งทองแบบเบา (ไม่มีตารางละเอียด) สำหรับแสดงราคายุติธรรมสด"""
+    best_i = max(range(len(probs)), key=lambda i: probs[i]) if probs else -1
+    rows = ""
+    for i, lab in enumerate(labels):
+        p = probs[i] if i < len(probs) else 0.0
+        fair = 1.0 / p if p > 0 else 0.0
+        width = max(3.0, min(100.0, p * 100))
+        best_cls = " is-best" if i == best_i else ""
+        rows += (
+            f'<div class="mkt-row{best_cls}"><div class="mkt-row-top">'
+            f'<span class="mkt-name">{lab}</span>'
+            f'<span class="mkt-val">{p*100:.1f}% · ยุติธรรม <b>{fair:.2f}</b></span></div>'
+            f'<div class="mkt-bar"><div class="mkt-fill" style="width:{width:.1f}%"></div></div></div>'
+        )
+    sub = f'<span class="mkt-vig">{subtitle}</span>' if subtitle else ''
+    st.markdown(
+        f'<div class="mkt-card"><div class="mkt-head"><span class="mkt-title">{header}</span>{sub}</div>{rows}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 # =====================================================================
 # 3. หน้าจอการกรอกข้อมูลและโต้ตอบ
 # =====================================================================
@@ -590,11 +671,12 @@ if uploaded_file is not None:
 else:
     st.sidebar.info("💡 คำแนะนำ: หากคุณมีไฟล์สถิติ Excel คุณสามารถลากไฟล์มาใส่ช่องนี้เพื่อเปิดข้อมูลควบคู่ไปกับการคำนวณได้")
 
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "ถอดค่าน้ำของเจ้ามือ",
     "แบบจำลองสถิติทำนายประตู",
     "ระบบตรวจรับตั๋วแบบหน่วงเวลา",
     "CLV Tracker (วัดการเอาชนะราคาปิด)",
+    "🔴 In-Play (บอลสด)",
 ])
 
 # --- แท็บที่ 1: เครื่องมือถอดค่าน้ำของเจ้ามือ ---
@@ -1141,3 +1223,112 @@ with tab4:
             "- เป้าหมายระยะยาว: ให้ **CLV เฉลี่ยเป็นบวก** และสัดส่วนตั๋วที่ชนะราคาปิด > 50% สม่ำเสมอ\n"
             "- ข้อควรจำ: CLV วัดว่า *กระบวนการ* ดีไหม ไม่ได้แปลว่าตั๋วนั้นถูกเสมอ และไม่การันตีกำไร"
         )
+
+
+# --- แท็บที่ 5: In-Play (บอลสด) ---
+with tab5:
+    st.header("🔴 In-Play — วิเคราะห์ราคาบอลสด (กรอกสถานะเอง)")
+    st.write(
+        "กรอกฟอร์มก่อนแข่ง (xG) + สถานะปัจจุบันของเกม ระบบจะคิดราคายุติธรรม **สด** "
+        "จากเวลาที่เหลือและสกอร์ปัจจุบัน แล้วเทียบกับราคาสดที่คุณเห็น"
+    )
+    st.caption("⚠️ ปรับตามเวลาที่เหลือ/สกอร์/ใบแดง (ใบแดงใช้ค่าประมาณ) — เป็นตัวช่วยประเมิน ไม่ใช่การการันตีกำไร")
+
+    ip1, ip2, ip3 = st.columns(3)
+    with ip1:
+        st.markdown("**① ฟอร์มก่อนแข่ง (xG เต็มแมตช์)**")
+        ip_lh = st.number_input("xG เจ้าบ้าน", min_value=0.1, max_value=5.0,
+                                value=float(st.session_state.get("lambda_h", 1.6)), step=0.1, key="ip_lh")
+        ip_la = st.number_input("xG ทีมเยือน", min_value=0.1, max_value=5.0,
+                                value=float(st.session_state.get("lambda_a", 1.2)), step=0.1, key="ip_la")
+        st.caption("ดึงค่าจากแท็บ 2 มาเป็นค่าเริ่มต้น แก้ได้")
+    with ip2:
+        st.markdown("**② สถานะปัจจุบัน**")
+        ip_min = st.slider("นาทีที่เล่นไปแล้ว", min_value=0, max_value=90, value=45, key="ip_min")
+        sc = st.columns(2)
+        ip_ch = sc[0].number_input("สกอร์เหย้า", min_value=0, max_value=20, value=0, step=1, key="ip_ch")
+        ip_ca = sc[1].number_input("สกอร์เยือน", min_value=0, max_value=20, value=0, step=1, key="ip_ca")
+        rd = st.columns(2)
+        ip_rh = rd[0].number_input("ใบแดงเหย้า", min_value=0, max_value=3, value=0, step=1, key="ip_rh")
+        ip_ra = rd[1].number_input("ใบแดงเยือน", min_value=0, max_value=3, value=0, step=1, key="ip_ra")
+    with ip3:
+        st.markdown("**③ เส้นราคาสดที่จะวิเคราะห์**")
+        ip_ou_line = st.text_input("เส้น สูง/ต่ำ สด", value="2.5", key="ip_ou_line")
+        ip_ah_line = st.text_input("เส้น AH สด (ใส่ - ถ้าเยือนต่อ)", value="-0.5", key="ip_ah_line")
+        fav_ip, mag_ip_str, desc_ip = interpret_ah_line(ip_ah_line)
+        st.caption(desc_ip)
+
+    # คำนวณโมเดลสด
+    rho_ip = float(st.session_state.get("rho_val", -0.11))
+    ou_val_ip = line_to_float(ip_ou_line)
+    mag_ip = line_to_float(mag_ip_str)
+    hcap_home_ip = -mag_ip if fav_ip == "home" else mag_ip
+    hw, dr, aw, ov, ah_home = inplay_model(
+        ip_lh, ip_la, ip_min, ip_ch, ip_ca, ip_rh, ip_ra, ou_val_ip, hcap_home_ip, rho=rho_ip
+    )
+    ah_away = max(0.0, 1.0 - ah_home)
+    un = max(0.0, 1.0 - ov)
+    rem_min = max(0, 90 - ip_min)
+
+    st.write("---")
+    st.subheader(f"📊 ราคายุติธรรมสด · สกอร์ {ip_ch}-{ip_ca} · เหลืออีก ~{rem_min} นาที")
+
+    if fav_ip == "home":
+        ah_labels = [f"เหย้าต่อ (-{mag_ip_str})", f"เยือนรอง (+{mag_ip_str})"]
+    else:
+        ah_labels = [f"เหย้ารอง (+{mag_ip_str})", f"เยือนต่อ (-{mag_ip_str})"]
+
+    cc1, cc2, cc3 = st.columns(3)
+    with cc1:
+        render_prob_card("1X2 (สด)", "", ["เหย้า (Home)", "เสมอ (Draw)", "เยือน (Away)"], [hw, dr, aw])
+    with cc2:
+        render_prob_card(f"AH สด · เส้น {ip_ah_line}", "", ah_labels, [ah_home, ah_away])
+    with cc3:
+        render_prob_card(f"สูง/ต่ำ สด · เส้น {ip_ou_line}", "", ["สูง (Over)", "ต่ำ (Under)"], [ov, un])
+
+    # เช็ก Value ราคาสด
+    st.write("---")
+    st.subheader("🔎 เช็ก Value ราคาสด")
+    st.caption("เลือกฝั่ง แล้วใส่ราคาสดที่เจ้ามือเปิดตอนนี้ ระบบเทียบกับราคายุติธรรมสด")
+
+    ip_sides = {}
+    for lab, p in [
+        ("[1X2] เหย้า (Home)", hw), ("[1X2] เสมอ (Draw)", dr), ("[1X2] เยือน (Away)", aw),
+        (f"[AH] {ah_labels[0]}", ah_home), (f"[AH] {ah_labels[1]}", ah_away),
+        ("[O/U] สูง (Over)", ov), ("[O/U] ต่ำ (Under)", un),
+    ]:
+        if p > 1e-6:
+            ip_sides[lab] = p
+
+    if ip_sides:
+        iv1, iv2 = st.columns([3, 2])
+        with iv1:
+            ip_side = st.selectbox("เลือกฝั่งราคาสด", list(ip_sides.keys()), key="ip_side_sel")
+        with iv2:
+            ip_live_odds = st.number_input("ราคาสดที่เห็น (Decimal)", min_value=1.01, value=2.00, step=0.01, key="ip_live_odds")
+
+        ip_p = ip_sides[ip_side]
+        ip_fair = 1.0 / ip_p
+        ip_edge = (ip_live_odds * ip_p - 1.0) * 100
+        if ip_live_odds > ip_fair:
+            cls, pill, edge_txt = "vb-value", "✅ VALUE", f"EV +{ip_edge:.2f}%"
+        elif abs(ip_live_odds - ip_fair) < 1e-9:
+            cls, pill, edge_txt = "vb-neutral", "➖ พอดีราคา", "EV 0.00%"
+        else:
+            cls, pill, edge_txt = "vb-novalue", "❌ NO VALUE", f"EV {ip_edge:.2f}%"
+        st.markdown(
+            f'<div class="vb-card {cls}"><div class="vb-side">{ip_side}</div>'
+            f'<div class="vb-compare">'
+            f'<div class="vb-num"><span class="vb-lbl">ยุติธรรมสด</span><span class="vb-fair">{ip_fair:.2f}</span></div>'
+            f'<div class="vb-arrow">→</div>'
+            f'<div class="vb-num"><span class="vb-lbl">ราคาสดที่เห็น</span><span class="vb-yours">{ip_live_odds:.2f}</span></div>'
+            f'</div>'
+            f'<div class="vb-verdict"><span class="vb-pill">{pill}</span><span class="vb-edge">{edge_txt}</span></div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.info(
+        "💡 ใช้คู่กับแท็บ 1: กรอกราคาก่อนแข่งในแท็บ 1 → ไปแท็บ 2 กดถอด xG → ค่าจะเด้งมาที่นี่อัตโนมัติ "
+        "ทำให้ค่า xG ตั้งต้นอิงราคาตลาดจริง ไม่ใช่เดาเอง"
+    )
