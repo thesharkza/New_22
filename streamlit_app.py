@@ -364,7 +364,12 @@ if uploaded_file is not None:
 else:
     st.sidebar.info("💡 คำแนะนำ: หากคุณมีไฟล์สถิติ Excel คุณสามารถลากไฟล์มาใส่ช่องนี้เพื่อเปิดข้อมูลควบคู่ไปกับการคำนวณได้")
 
-tab1, tab2, tab3 = st.tabs(["ถอดค่าน้ำของเจ้ามือ", "แบบจำลองสถิติทำนายประตู", "ระบบตรวจรับตั๋วแบบหน่วงเวลา"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "ถอดค่าน้ำของเจ้ามือ",
+    "แบบจำลองสถิติทำนายประตู",
+    "ระบบตรวจรับตั๋วแบบหน่วงเวลา",
+    "CLV Tracker (วัดการเอาชนะราคาปิด)",
+])
 
 # --- แท็บที่ 1: เครื่องมือถอดค่าน้ำของเจ้ามือ ---
 with tab1:
@@ -753,3 +758,147 @@ with tab3:
             for b in st.session_state["bet_history"]:
                 status_icon = "🟢" if b["status"] == "Accepted" else "🔴"
                 st.write(f"{status_icon} **[{b['time']}]** เลือก: {b['selection']} -> **สถานะ: {b['status']}** ({b['reason']})")
+
+
+# --- แท็บที่ 4: CLV Tracker ---
+with tab4:
+    st.header("📈 CLV Tracker — วัดการเอาชนะราคาปิด (Closing Line Value)")
+    st.write(
+        "บันทึกราคาที่คุณแทงไว้ พอตลาดปิดค่อยใส่ราคาปิดเข้าไป ระบบจะวัดว่าคุณได้ราคา "
+        "**ดีกว่าตอนปิด** หรือไม่ — CLV เป็นตัวชี้วัดว่ากระบวนการหา value ของคุณดีจริงไหม "
+        "(น่าเชื่อถือกว่ากำไร/ขาดทุนระยะสั้น แต่ไม่ใช่การการันตีกำไร)"
+    )
+
+    if "clv_log" not in st.session_state:
+        st.session_state["clv_log"] = []
+
+    # ---------- บันทึกตั๋วใหม่ ----------
+    with st.form("clv_add_form", clear_on_submit=True):
+        st.subheader("➕ บันทึกตั๋วใหม่ (ตอนที่แทง)")
+        f1, f2 = st.columns(2)
+        with f1:
+            in_match = st.text_input("คู่แข่งขัน", value=st.session_state.get("match_title", ""))
+            in_sel = st.text_input("ฝั่งที่แทง (เช่น เหย้า -1.5 / สูง 3.5)")
+        with f2:
+            in_odds = st.number_input("ราคาที่แทงได้ (Decimal)", min_value=1.01, value=2.00, step=0.01)
+            in_stake = st.number_input("เงินเดิมพัน (หน่วย)", min_value=0.0, value=1.0, step=0.5)
+        if st.form_submit_button("📥 บันทึกตั๋ว"):
+            st.session_state["clv_log"].append({
+                "เวลา": time.strftime("%m-%d %H:%M"),
+                "คู่": in_match,
+                "ฝั่ง": in_sel,
+                "ราคาแทง": float(in_odds),
+                "ทุน": float(in_stake),
+                "ราคาปิด": 0.0,
+                "ปิดฝั่งตรงข้าม": 0.0,
+            })
+            st.success("บันทึกแล้ว — เลื่อนลงไปกรอกราคาปิดในตารางเมื่อตลาดปิด")
+
+    # ---------- ตารางแก้ไข + ผล CLV ----------
+    st.write("---")
+    st.subheader("📋 ตารางตั๋ว + ใส่ราคาปิด")
+
+    if not st.session_state["clv_log"]:
+        st.info("ยังไม่มีตั๋วในบันทึก เพิ่มด้านบนได้เลย")
+    else:
+        df_log = pd.DataFrame(st.session_state["clv_log"])
+        st.caption("แก้ไขช่อง 'ราคาปิด' (และ 'ปิดฝั่งตรงข้าม' ถ้ามี เพื่อคำนวณแบบถอดค่าน้ำ) ได้ในตารางเลย · ลบแถวได้ด้วยปุ่มถังขยะ")
+        edited = st.data_editor(
+            df_log,
+            key="clv_editor",
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "ราคาแทง": st.column_config.NumberColumn("ราคาแทง", min_value=1.01, step=0.01, format="%.2f"),
+                "ทุน": st.column_config.NumberColumn("ทุน", min_value=0.0, step=0.5, format="%.1f"),
+                "ราคาปิด": st.column_config.NumberColumn("ราคาปิด", min_value=0.0, step=0.01, format="%.2f", help="ใส่ 0 ถ้ายังไม่ปิด"),
+                "ปิดฝั่งตรงข้าม": st.column_config.NumberColumn("ปิดฝั่งตรงข้าม", min_value=0.0, step=0.01, format="%.2f", help="ราคาปิดของฝั่งตรงข้าม (ไม่ใส่ก็ได้)"),
+            },
+        )
+        # เขียนค่ากลับเข้า session_state
+        st.session_state["clv_log"] = edited.fillna(0).to_dict("records")
+
+        # คำนวณ CLV ของแต่ละตั๋ว
+        rows = edited.fillna(0).to_dict("records")
+        clv_odds_list = []
+        clv_novig_list = []
+        beat_count = 0
+        settled = 0
+        display_rows = []
+        for r in rows:
+            bo = float(r.get("ราคาแทง", 0) or 0)
+            close = float(r.get("ราคาปิด", 0) or 0)
+            other = float(r.get("ปิดฝั่งตรงข้าม", 0) or 0)
+            clv_odds = clv_novig = None
+            if bo > 1 and close > 1:
+                settled += 1
+                clv_odds = (bo / close - 1.0) * 100
+                clv_odds_list.append(clv_odds)
+                if clv_odds > 0:
+                    beat_count += 1
+                if other > 1:
+                    true_p = (1.0 / close) / ((1.0 / close) + (1.0 / other))
+                    clv_novig = (true_p * bo - 1.0) * 100
+                    clv_novig_list.append(clv_novig)
+            display_rows.append({
+                "เวลา": r.get("เวลา", ""),
+                "ฝั่ง": r.get("ฝั่ง", ""),
+                "ราคาแทง": f"{bo:.2f}" if bo else "-",
+                "ราคาปิด": f"{close:.2f}" if close > 1 else "ยังไม่ปิด",
+                "CLV (ราคา)": f"{clv_odds:+.2f}%" if clv_odds is not None else "-",
+                "CLV (ถอดค่าน้ำ)": f"{clv_novig:+.2f}%" if clv_novig is not None else "-",
+            })
+
+        st.write("---")
+        st.subheader("📊 ผลการวัด CLV")
+        if settled == 0:
+            st.info("ยังไม่มีตั๋วที่ใส่ราคาปิด — กรอกราคาปิดในตารางด้านบนเพื่อดูผล")
+        else:
+            avg_clv = sum(clv_odds_list) / len(clv_odds_list)
+            beat_pct = beat_count / settled * 100
+            avg_novig = (sum(clv_novig_list) / len(clv_novig_list)) if clv_novig_list else None
+
+            mc1, mc2, mc3 = st.columns(3)
+            mc1.metric("CLV เฉลี่ย (ราคา)", f"{avg_clv:+.2f}%")
+            mc2.metric("ตั๋วที่ชนะราคาปิด", f"{beat_count}/{settled}", f"{beat_pct:.0f}%")
+            mc3.metric("CLV เฉลี่ย (ถอดค่าน้ำ)", f"{avg_novig:+.2f}%" if avg_novig is not None else "—")
+
+            if avg_clv > 0:
+                st.success("✅ โดยรวมคุณได้ราคาดีกว่าตอนปิด — เป็นสัญญาณว่ากระบวนการหา value ของคุณมีแนวโน้มดี")
+            else:
+                st.warning("⚠️ โดยรวมคุณได้ราคาแย่กว่าตอนปิด — ลองทบทวนจังหวะแทงหรือเกณฑ์ที่ใช้")
+
+            st.table(pd.DataFrame(display_rows))
+
+            # กราฟ CLV ต่อตั๋ว
+            if clv_odds_list:
+                st.caption("CLV (ราคา) รายตั๋ว — แท่งบวก = ชนะราคาปิด")
+                st.bar_chart(pd.DataFrame({"CLV %": clv_odds_list}))
+
+        # ดาวน์โหลด / นำเข้า เพื่อเก็บข้ามเซสชัน
+        st.write("---")
+        st.subheader("💾 บันทึก/โหลดข้อมูล (กันข้อมูลหายเมื่อปิดแอป)")
+        dl1, dl2 = st.columns(2)
+        with dl1:
+            csv_bytes = edited.fillna(0).to_csv(index=False).encode("utf-8-sig")
+            st.download_button("⬇️ ดาวน์โหลด log (CSV)", csv_bytes, "clv_log.csv", "text/csv")
+        with dl2:
+            up = st.file_uploader("⬆️ โหลด log เก่า (CSV)", type=["csv"], key="clv_upload")
+            if up is not None:
+                if st.button("นำเข้าข้อมูลจากไฟล์นี้"):
+                    try:
+                        df_up = pd.read_csv(up)
+                        st.session_state["clv_log"] = df_up.fillna(0).to_dict("records")
+                        st.success("นำเข้าข้อมูลสำเร็จ")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"อ่านไฟล์ไม่สำเร็จ: {e}")
+
+    with st.expander("ℹ️ CLV คืออะไร และอ่านผลยังไง"):
+        st.markdown(
+            "- **CLV (ราคา)** = ราคาที่คุณแทงได้ดีกว่าราคาปิดกี่ % — สูตร `(ราคาแทง / ราคาปิด − 1) × 100`\n"
+            "- **บวก** = คุณล็อกราคาก่อนที่มันจะไหลลง = จับ value ได้จริง · **ลบ** = คุณได้ราคาแย่กว่าตอนปิด\n"
+            "- **CLV (ถอดค่าน้ำ)** = แม่นกว่า เพราะเอาราคาปิดสองฝั่งมาถอดค่าน้ำก่อน แล้ววัด EV เทียบราคาที่คุณแทง (ต้องกรอก 'ปิดฝั่งตรงข้าม')\n"
+            "- เป้าหมายระยะยาว: ให้ **CLV เฉลี่ยเป็นบวก** และสัดส่วนตั๋วที่ชนะราคาปิด > 50% สม่ำเสมอ\n"
+            "- ข้อควรจำ: CLV วัดว่า *กระบวนการ* ดีไหม ไม่ได้แปลว่าตั๋วนั้นถูกเสมอ และไม่การันตีกำไร"
+        )
